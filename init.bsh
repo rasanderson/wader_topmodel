@@ -1,0 +1,37 @@
+#!/bin/bash
+
+# Setup stuff for running Topmodel in Tweed
+# Ideally would use Surface Water Operational Catchments (SWOC) but these
+# do not seem to be available for Scotland. Integrated Hydrological
+# Unit (IHU) Areas closest match.
+
+# Clip with ihu_areas_nocoast as this aligns best with the CEH IHDTM
+# Select out just Tweed
+v.extract input=ihu_areas_nocoast output=tweed_ihu where="HA_NAME == 'Tweed'" --overwrite
+v.clip input=ihu_groups clip=tweed_ihu output=tweed_ihu_groups --overwrite
+
+# Elevation for Tweed
+g.region res=50
+v.to.rast input=tweed_ihu output=tweed_ihu_50m use=val value=1 --overwrite
+r.mapcalc expression="tweed_ihdtm_50m=if(tweed_ihu_50m == 1,ceh_ihdtm_50m, null())" --overwrite
+r.colors map=tweed_ihdtm_50m color=elevation
+
+# Setup subcatchments for TopModel
+v.to.rast input=tweed_ihu_groups use=cat output=tweed_ihu_groups_50m --overwrite
+r.reclass input=tweed_ihu_groups_50m output=tweed_ihu_groups_50m_rcl --overwrite rules=- << EOF
+279 = 1
+284 = 2
+285 = 3
+290 = NULL  # Ignore coastal ones for now as lots of separate small streams
+292 = 4
+293 = 5
+322 = 6
+332 = 7
+380 = 8
+EOF
+r.mapcalc expression="tweed_ihu_groups_50m_rcl2=tweed_ihu_groups_50m_rcl" --overwrite
+g.remove -f type=raster name=tweed_ihu_groups_50m_rcl
+g.remove -f type=raster name=tweed_ihu_groups_50m
+g.rename raster=tweed_ihu_groups_50m_rcl2,tweed_ihu_groups_50m
+
+v.clip input=rivers clip=tweed_ihu output=tweed_rivers --overwrite

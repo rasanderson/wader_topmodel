@@ -1,0 +1,265 @@
+# GRASS data processing pipeline for TOPMODEL
+# After https://github.com/HuidaeCho/foss4g-2021-r.topmodel-workshop
+
+
+# 1. SETTING UP THE WATERSHED AND LONGEST FLOW PATH
+# For calibration, want to find an NRFA flow guage and digitise a
+# stream output just below it. As digitised point won't exactly
+# align onto the stream, need a bit of GRASS magic to snap line to
+# stream, and then chop out all the upstream network
+# e.g. note down coordinates of potential outflow and pipe it into
+# GRASS to get the output point "outlet"
+m.proj -i coordinates=-83.622775,34.5407222 | v.in.ascii input=- output=outlet
+
+# Now create the little "stub" vector line to connect outlet to main
+# network
+v.db.addcolumn map=outlet columns="to_cat int"
+# nhd_h_0313_hu4_flowlines is main stream network
+v.distance from=outlet to=nhd_h_0313_hu4_flowlines output=outlet_to_nhd upload=cat column=to_cat
+
+# Extract the end node of the connecting line.
+v.to.points input=outlet_to_nhd layer=-1 use=end output=outlet_snapped_end
+
+# Change the layer number from 2 to 1.
+v.category input=outlet_snapped_end option=chlayer layer=2,1 output=outlet_snapped
+
+
+# Now we need to break the main stream network where are stub joins
+# Read the stream category at the outlet.
+v.db.select map=outlet columns=to_cat
+
+# That is 10939 in the nhd_h_0313_hu4_flowlines vector.
+# Create a new vector that contains the end node of this stream feature.
+echo P 1 10939 100% | v.segment input=nhd_h_0313_hu4_flowlines output=stream_end
+
+# Read the coordinates of the snapped outlet.
+v.to.db -p map=outlet_snapped option=coor
+
+# The outlet is at 2460369.59482209,1652285.55287325.
+# Make a copy of nhd_h_0313_hu4_flowlines and break the stream at the outlet.
+g.copy vector=nhd_h_0313_hu4_flowlines,streams
+v.edit map=streams tool=break coor=2460369.59482209,1652285.55287325
+
+# We now read the coordinates at the stream end and break it off
+v.to.db -p map=stream_end option=coor
+# The coordiates are 2460106.33505189,1652308.56363985. Delete the downstream
+# piece of the stream. This edit will delete more features at the downstream
+# side of the watershed, but that should be fine because we are only concerned
+# with the upstream part of the stream network.
+v.edit map=streams tool=delete coords=2460106.33505189,1652308.56363985
+
+# Compute weakly connected components in the stream network and find the
+# component ID inside the watershed. For querying the component ID, use the
+# coordinates of the snapped outlet.
+v.net.components input=streams output=streams_net method=weak
+v.what -ag map=streams_net coordinates=2460369.59482209,1652285.55287325 | grep comp=
+
+# The component ID of the stream network inside the watershed is 17. Extract
+# this stream network.
+v.extract input=streams_net where=comp=17 output=streams_watershed
+
+# Let’s set the computational region that is big enough to contain the watershed.
+# A buffer of 9,000 ft (100 times the 90-ft resolution) is used.
+g.region -a vector=streams_watershed n=n+9000 s=s-9000 e=e+9000 w=w-9000
+
+# Clip the n34_w084_1arc_v3 elevation (DEM) raster to the computational region.
+r.mapcalc expression=dem=n34_w084_1arc_v3
+
+# Burn the stream network into the DEM and calculate flow directions. Unlike
+# some other flow direction tools, r.watershed does not require sinks to be
+# filled because it uses a least-cost algorithm.
+v.to.rast input=streams_watershed output=streams_watershed use=val
+r.mapcalc expression="dem_burned=if(isnull(streams_watershed),dem,-9999)"
+r.watershed elevation=dem_burned drainage=fdir
+
+# Now we can delineate the watershed and display the longest flow path
+# Note: r.accumulate may neet to be installed with g.extension
+r.accumulate direction=fdir outlet=outlet subwatershed=watershed accumulation=facc longest_flow_path=lfp
+
+# Convert the watershed raster to vector.
+r.to.vect input=watershed type=area output=watershed
+
+# 2. TOPMODEL TOPOGRAPHIC INDEX
+# Warning
+# It is important to use the native resolution of the DEM when we calculate
+# topographic index rasters because r.topidx uses neighbor cell values to
+# determine the local surface topographic slope. See this (and scripts)
+# https://idea.isnew.info/r.topidx.html for more information. The above should
+# have set the correct resolution, but the following should set it OK:
+g.region raster=dem_burned
+
+# Calculate the topographic index
+# Just one command. Then, clip it to the dem_burned raster.
+r.topidx input=dem_burned output=topidx
+r.mapcalc expression="topidx_watershed=if(isnull(watershed),null(),topidx)"
+# display topidx_watershed
+
+# 3. TOPMODEL parameters
+# r.topmodel requires the following three input files:
+#    parameters: TOPMODEL parameters passed to r.topmodel parameters=
+#    topidxstats: topographic index statistics passed to r.topmodel topidxstats=
+#    input: rainfall and potential evapotranspiration time series passed to r.topmodel input=
+#
+# This split design allows the modeler to use the same parameters file for
+# different scenarios of topographic index or weather forcing data.
+# Parameters file structure: blank lines, or beginning # ignored
+# 
+# All lengths and times in any input files must be given in meters and hours for
+# consistency except for R (rainfall) and Ep (potential evapotranspiration) in
+# the input= file, which are in per dt, a number of hours.
+# Parameter ranges
+r.topmodel parameters and their ranges
+# Name	Description							Min	Max
+# qs0	Initial subsurface flow per unit area in m/h			0	0.0001
+# lnTe	Areal average of the soil surface transimissivity in ln(m2/h)-7	10
+# m	Scaling parameter describing the soil transimissivity in m	0.001	0.25
+# Sr0	Initial root zone storage deficit in m			0	0.01
+# Srmax Maximum root zone storage deficit in m			0.005	0.08
+# td	Unsaturated zone time delay per unit storage deficit in h	0.001	40
+# vch	Main channel routing velocity in m/h; not to be calibrated	50	2000
+# vr	Internal subwatershed routing velocity in m/h			50	2000
+# K0	Surface hydraulic conductivity in m/h				0.0001	0.2
+# psi	Wetting front suction in m					0.01	0.5
+# dtheta Water content change across the wetting front		0.01	0.6
+
+# IMPORTANT: Multi-subwatershed models
+# Tweed will fall into this category!!
+# One can split a watershed into multiple subwatersheds, each of which can be
+# modeled by a separate r.topmodel model. Then, hydrographs from multiple
+# r.topmodel models can be combined to simulate the watershed of interest.
+# This configuration for multiple subwatersheds can be achieved by adding the
+# main channel distance from the watershed outlet to the outlet of each
+# subwatershed to distances for the cumulative area ratios at the end of each
+# parameters file. In this workshop, we will model the watershed as a single
+# watershed as is for simplicity and ignore the main channel routing. The
+# tutorial gives a detailed breakdown of the default values (and rationale)
+# used for the parameters file, and these can be adapted for Tweed.
+
+# Create 10 variable contributing areas (suboutlets)
+# For this workshop, let’s create 10 variable contributing areas within the
+# watershed at an equidistant interval. Since we can use 0 and 0 for the first
+# pair and 1 for the last pair, we only need to create 9 points. Create a file
+#  called suboutlets.txt with the following content (without #):
+# P 1 1 -10%
+# P 2 1 -20%
+# P 3 1 -30%
+# P 4 1 -40%
+# P 5 1 -50%
+# P 6 1 -60%
+# P 7 1 -70%
+# P 8 1 -80%
+# P 9 1 -90%
+# P 2 1 -20% means that we want to create a suboutlet point at the 20% distance
+# from the end node of the category 1 line and assign category 2 to the new
+# point.
+v.segment input=lfp rules=suboutlets.txt output=suboutlets
+r.accumulate direction=fdir outlet=suboutlets subwatershed=subwatersheds
+# display subwatersheds and suboutlets
+# Note: in this example, about half the watershed is ignored as the stream
+# splits it into two almost equally-sized major subwatershed areas near its
+# outlet. Huidae Cho recommends multi-subwatershed models as a solution but
+# does not show this in the tutorial unfortunately.
+
+# Creating the last set of the parameters input file
+v.db.addtable map=lfp
+v.to.db map=lfp option=length units=meters columns=length_m
+v.db.select map=lfp
+
+# The longest flow length is 66,110.118521 m. For each of 10 variable
+# contributing areas, a distance of 6,611.0118521 m is accumulated.
+v.db.addtable map=suboutlets
+v.db.addcolumn map=suboutlets columns="distance_m real"
+v.db.update map=suboutlets column=distance_m query_column="cat*6611.0118521"
+
+# The cumulative area ratios of 10 subwatersheds can be obtained from the flow
+# accumulation raster.
+v.what.rast map=suboutlets raster=facc column=facc
+v.what.rast map=outlet raster=facc column=facc
+v.db.select map=outlet
+
+# The total number of cells within the watershed is 1,058,540. Divide the facc
+# column in the suboutlets vector by this number to obtain the cumulative area
+# ratios.
+v.db.addcolumn map=suboutlets columns="area_ratio real"
+v.db.update map=suboutlets column=area_ratio query_column="1-facc/1058540."
+v.db.select -c suboutlets columns=distance_m,area_ratio separator=tab
+
+# Just make sure to append a . after 1058540 to force a floating-point division.
+# This is my output (without the #):
+# 6611.0118521    0.508024259829577
+# 13222.0237042   0.645446558467323
+# 19833.0355563   0.710716647457819
+# 26444.0474084   0.822589604549663
+# 33055.0592605   0.867452340015493
+# 39666.0711126   0.892391407032328
+# 46277.0829647   0.934296294896745
+# 52888.0948168   0.976866249740208
+# 59499.1066689   0.986551287622574
+
+# Prepend 0.0 0.0 and append 66110.118521 1.0 to complete the last section of
+# the parameters file.
+
+# 4.TOPMODEL topidxstats
+# r.topmodel provides a preprocessing flag -p to generate a topidxstats file
+# from a topidx raster created by r.topidx. The following command calculates
+# statistics about topographic indices in the topidx raster by splitting the
+# entire range into 30 classes:
+r.topmodel -p topidx=topidx ntopidxclasses=30 outtopidxstats=topidxstats.txt
+
+# Each line starts with the upper limit of a topographic index range whose
+# ratio is recorded in the next line in the second column with its lower
+# limit in the first column. For example, topographic indices between 16.67
+# and 17.09 covers the 1.742e-4% of the watershed.
+#
+# These pairs are sorted by the topographic index in an descending order.
+# Since the first line represents the maximum topographic index, its second
+# column must always be 0.
+
+# 5. WEATHER DATA - RAINFALL
+# This is usually a total pain as the Met Office data are impossible to work
+# with. However Huidae Cho recommends using the NCDC data instead and
+# provides Python scripts to grab the precipitation and evapotranspiration.
+# Checking the NCDC website, 144 UK weather stations are included, which
+# sounds like the bulk of the main Met Office ones. This might therefore
+# be the simplest initial route.
+
+# 6. WEATHER DATA - POTENTIAL EVAPOTRANSPIRATION (PET)
+# The USGS daily global potential evapotranspiration (PET) is estimated using
+# climate parameters extracted from the Global Data Assimilation System (GDAS),
+# which is run every six hours by the National Oceanic and Atmospheric
+# Administration (NOAA). Its data resolution is 1° by 1°. The data availability
+# is from January 1, 2001. However, its web interface is limited to a
+# single-year, single-month, or single-day download. The unit of this data
+# product is 0.01 mm, which means a cell value of 1 indicates a daily potential
+# evapotranspiration of 0.01 mm. Again, this might be the simplest approach to
+# get started on Tweed, and scripts to download data provided. 1 degree is
+# roughly 60 x 120 km around the latitude of the Tweed.
+
+# 7. USGS STREAMFLOW
+# For Wader we'll use NRFA data instead. Note file format:
+
+# Generated by tmod.observed site_no=02331600 start_date=2010-01-01 end_date=2020-12-31 output=observed.txt
+# Q [m^3/d]
+3229479.660000
+3058219.375000
+2960356.355000
+2886959.090000
+---
+
+# 7. CALIBRATION
+# First five years used for calibration, last five for validation. Scripts
+# provided to count numbers of days of year, and split weather data files
+# up accordingly. Calibration actually done through R script.
+# NOTE: the "calibrate.R" script must be run from an R session started
+# from inside GRASS.
+# Results look good and closely match tutorial, which also has slight
+# overestimate of peak streamflows.
+
+# 8. VALIDATION
+# Again, series of scripts provided that allows comparison of predictions
+# from model with last five years of data.
+
+# 9. RANDOM PARAMETER SAMPLING AND SENSITIVITY ANALYSIS
+# Although a little slow, this is very useful as allows us to determine
+# the sensitivity of TOPMODEL to all the various imput parameters.
+

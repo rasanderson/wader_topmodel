@@ -1,0 +1,50 @@
+#!/bin/bash
+
+# Work on one Integrated Hydrological Unit using method
+# from tutorial. Begin with headwater-based one (Ettrick
+# Water, 332 G_NAME="Tweed (Source to Ettrick Water)") for
+# simplicity.
+
+# Extract out Ettrick Water IHU
+v.extract input=wader_ihu_groups output=ihu_target where="cat = 292" --overwrite
+# Clip out rivers
+v.clip input=tweed_rivers clip=ihu_target output=ihu_rivers --overwrite
+
+# Coords just downstream of NRFA 12 (21007)
+# Use d.where | awk '{printf "%f\%f\point\n", $1, $2}' | v.in.ascii ...
+# if using a d.mon screen
+#
+echo "348577.63|631535.35|point" | v.in.ascii input=- output=ihu_outlet columns='x double precision, y double precision, label varchar(20)' --overwrite
+# Create stub to rivers and extend
+v.db.addcolumn map=ihu_outlet columns="to_cat int"
+v.distance from=ihu_outlet to=ihu_rivers output=ihu_outlet_to_rivers upload=cat column=to_cat --overwrite
+# Extract end note of connecting line
+v.to.points input=ihu_outlet_to_rivers layer=-1 use=end output=ihu_outlet_snapped_end --overwrite
+# Change category numer from 2 to 1
+v.category input=ihu_outlet_snapped_end option=chlayer layer=2,1 output=ihu_outlet_snapped --overwrite
+
+
+# Now we need to break the main stream network where are stub joins
+# Read the stream category at the outlet.
+v.db.select map=ihu_outlet columns=to_cat
+
+# That is 10952 in the ihu_rivers vector.
+# Create a new vector that contains the end node of this stream feature.
+echo P 1 10952 100% | v.segment input=ihu_rivers output=ihu_stream_end --overwrite
+
+# Read the coordinates of the snapped outlet.
+v.to.db -p map=ihu_outlet_snapped option=coor
+# The outlet is at 348574.161543829|631541.683702573 
+# Make a copy of ihu_rivers and break the stream at the outlet.
+g.copy vector=ihu_rivers,ihu_streams --overwrite
+v.edit map=ihu_streams tool=break coor=348574.161543829,631541.683702573
+
+# We now read the coordinates at the stream end and break it off
+v.to.db -p map=ihu_stream_end option=coor
+# The coordiates are 348660|631614. Delete the downstream
+# piece of the stream. This edit will delete more features at the downstream
+# side of the watershed, but that should be fine because we are only concerned
+# with the upstream part of the stream network.
+v.edit map=ihu_streams tool=delete coords=348660,631614
+
+

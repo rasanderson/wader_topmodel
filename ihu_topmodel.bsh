@@ -18,10 +18,14 @@ echo "348577.63|631535.35|point" | v.in.ascii input=- output=ihu_outlet columns=
 # Create stub to rivers and extend
 v.db.addcolumn map=ihu_outlet columns="to_cat int"
 v.distance from=ihu_outlet to=ihu_rivers output=ihu_outlet_to_rivers upload=cat column=to_cat --overwrite
-# Extract end note of connecting line
-v.to.points input=ihu_outlet_to_rivers layer=-1 use=end output=ihu_outlet_snapped_end --overwrite
+# IMPORTANT. Due to a bug in GRASS #1408 the v.distance line does not work correctly. You
+# must manually 
+# Extract end node of connecting line
+# db.droptable -f table=ihu_outlet_to_rivers
+# v.db.addtable map=ihu_outlet_to_rivers
+# v.to.points input=ihu_outlet_to_rivers layer=-1 use=end output=ihu_outlet_snapped_end --overwrite
 # Change category numer from 2 to 1
-v.category input=ihu_outlet_snapped_end option=chlayer layer=2,1 output=ihu_outlet_snapped --overwrite
+# v.category input=ihu_outlet_snapped_end option=chlayer layer=2,1 output=ihu_outlet_snapped --overwrite
 
 
 # Now we need to break the main stream network where are stub joins
@@ -30,7 +34,17 @@ v.db.select map=ihu_outlet columns=to_cat
 
 # That is 10952 in the ihu_rivers vector.
 # Create a new vector that contains the end node of this stream feature.
-echo P 1 10952 100% | v.segment input=ihu_rivers output=ihu_stream_end --overwrite
+# Again, seems to be a bug in that v.segment does not create end point
+# echo P 1 10952 100% | v.segment input=ihu_rivers output=ihu_stream_end --overwrite
+# CLUNKY workaround
+g.region vect=ihu_outlet_to_rivers
+v.in.region output=tmp_region --overwrite
+g.region vect=ihu_streams
+v.buffer input=tmp_region output=tmp_region_buffer distance=10 --overwrite
+v.clip input=ihu_streams clip=tmp_region_buffer output=ihu_streams_clip --overwrite
+v.to.points input=ihu_streams_clip use=end output=ihu_stream_end --overwrite
+v.to.points input=ihu_streams_clip use=start output=ihu_stream_end2 --overwrite
+
 
 # Read the coordinates of the snapped outlet.
 v.to.db -p map=ihu_outlet_snapped option=coor
@@ -40,11 +54,24 @@ g.copy vector=ihu_rivers,ihu_streams --overwrite
 v.edit map=ihu_streams tool=break coor=348574.161543829,631541.683702573
 
 # We now read the coordinates at the stream end and break it off
-v.to.db -p map=ihu_stream_end option=coor
-# The coordiates are 348660|631614. Delete the downstream
+# v.to.db -p map=ihu_stream_end option=coor
+v.to.db -p map=ihu_stream_end2 option=coor
+# The coordiates are 348564.16154383|631536.207512097. Delete the downstream
 # piece of the stream. This edit will delete more features at the downstream
 # side of the watershed, but that should be fine because we are only concerned
 # with the upstream part of the stream network.
-v.edit map=ihu_streams tool=delete coords=348660,631614
+# NOTE: original version does not have id number in. This is needed as the cat
+# number is not changed by the v.edit break earlier.
+v.edit map=ihu_streams tool=delete id=1390 coords=348564.16154383,631536.207512097
+
+# Above process leaves two short detached bits of stream, but shouldn't be
+# a problem as downstream of outlet.
+
+# Compute weakly connected components in the stream network and find the
+# component ID inside the watershed. For querying the component ID, use the
+# coordinates of the snapped outlet.
+v.net.components input=ihu_streams output=ihu_streams_net method=weak --overwrite
+# 
+v.what -ag map=ihu_streams_net coordinates=348660,631614| grep comp=
 
 

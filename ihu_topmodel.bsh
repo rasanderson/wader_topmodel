@@ -71,7 +71,49 @@ v.edit map=ihu_streams tool=delete id=1390 coords=348564.16154383,631536.2075120
 # component ID inside the watershed. For querying the component ID, use the
 # coordinates of the snapped outlet.
 v.net.components input=ihu_streams output=ihu_streams_net method=weak --overwrite
-# 
-v.what -ag map=ihu_streams_net coordinates=348660,631614| grep comp=
+# Coords from ihu_outlet_snapped above 
+v.what -ag map=ihu_streams_net coordinates=348574.161543829,631541.683702573| grep comp=
+
+# The component ID of the stream network inside the watershed is 1. Extract
+# this stream network.
+v.extract input=ihu_streams_net where=comp=1 output=ihu_streams_watershed --overwrite
+
+# Not sure if next is needed given good DEM (in theory) so comment out for now
+
+# Let’s set the computational region that is big enough to contain the watershed.
+# A buffer of 5,000 metres (100 times the 50m resolution) is used.
+# g.region -a vector=ihu_streams_watershed n=n+5000 s=s-5000 e=e+5000 w=w-5000
+g.region -a vector=ihu_streams_watershed
+# Check region with g.region -p as some strange rounding errors
+# Clip CEH DEM to computational region
+r.mapcalc expression=ihu_dem=ceh_ihdtm_50m --overwrite
+
+# Burn the stream network into the DEM and calculate flow directions. Unlike
+# some other flow direction tools, r.watershed does not require sinks to be
+# filled because it uses a least-cost algorithm.
+v.to.rast input=ihu_streams_watershed output=ihu_streams_watershed use=val
+r.mapcalc expression="ihu_dem_burned=if(isnull(ihu_streams_watershed),ihu_dem,-9999)"
+#r.watershed elevation=ihu_dem_burned drainage=ihu_fdir stream=ihu_watershed_streams threshold=10 --overwrite
+r.watershed -s elevation=ihu_dem_burned drainage=ihu_fdir accumulation=ihu_facc direction=ihu_direction stream=ihu_watershed_streams threshold=25 --overwrite
+
+# Now we can delineate the watershed and display the longest flow path
+# Note: r.accumulate may neet to be installed with g.extension
+# r.accumulate direction=ihu_fdir outlet=ihu_outlet_snapped subwatershed=ihu_watershed accumulation=ihu_facc longest_flow_path=ihu_lfp --overwrite
+# Completely stuffs up as 50m misalignment
+#echo "1|348275|631375|outlet" > ihu_output2.txt
+#cat ihu_output2.txt | v.in.ascii in=- out=ihu_outlet2 x=2 y=3 cat=1 columns='cat int, x double precision, y double precision, label varchar(20)' --overwrite
+#r.accumulate direction=ihu_fdir outlet=ihu_outlet2 subwatershed=ihu_watershed accumulation=ihu_facc longest_flow_path=ihu_lfp --overwrite
+r.accumulate direction=ihu_fdir subwatershed=ihu_watershed longest_flow_path=ihu_lfp coordinates=347825,630875 --overwrite
+
+# Convert the watershed raster to vector.
+r.to.vect input=watershed type=area output=watershed
+
+
+
+
+
+
+
+
 
 

@@ -177,9 +177,9 @@ d.vect ihu_lfp color=blue
 
 
 # 2. TOPMODEL TOPOGRAPHIC INDEX
-r.topidx input=ihu_demfill output=topidx
-r.mapcalc expression="topidx_watershed=if(isnull(ihu_watershed),null(),topidx)"
-d.rast topidx_watershed
+r.topidx input=ihu_demfill output=ihu_topidx --overwrite
+r.mapcalc expression="topidx_watershed=if(isnull(ihu_watershed),null(),ihu_topidx)" --overwrite
+d.rast ihu_topidx_watershed
 # NOTE: topidx_watershed is not calculated for reservoirs (flat areas)
 
 # For later when setting up the topmodel_param.txt file we need the distance
@@ -264,6 +264,24 @@ tail --lines 54 $topmod_params_init >> topmod_params.txt
 echo "0.0       0.0" >> topmod_params.txt
 v.db.select -c ihu_suboutlets columns=distance_m,area_ratio separator=tab >> topmod_params.txt
 echo "$lfp_length       1.0" >> topmod_params.txt
+
+# 4.TOPMODEL topidxstats
+# r.topmodel provides a preprocessing flag -p to generate a topidxstats file
+# from a topidx raster created by r.topidx. The following command calculates
+# statistics about topographic indices in the topidx raster by splitting the
+# entire range into 30 classes:
+r.topmodel -p topidx=ihu_topidx ntopidxclasses=30 outtopidxstats=topidxstats.txt
+
+# Each line starts with the upper limit of a topographic index range whose
+# ratio is recorded in the next line in the second column with its lower
+# limit in the first column. For example, topographic indices between 16.67
+# and 17.09 covers the 1.742e-4% of the watershed.
+#
+# These pairs are sorted by the topographic index in an descending order.
+# Since the first line represents the maximum topographic index, its second
+# column must always be 0.
+
+
 
 
 

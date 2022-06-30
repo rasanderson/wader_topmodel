@@ -170,13 +170,20 @@ E_outflow=`cat output_flow.txt | xargs -n3 | sort -nrk3,3 | tail -1 | awk '{prin
 N_outflow=`cat output_flow.txt | xargs -n3 | sort -nrk3,3 | tail -1 | awk '{print $2}'`
 
 echo 'easting and northing coordinates for outflow are respectively' $E_outflow, $N_outflow
-
-
-r.accumulate direction=ihu_fdir longest_flow_path=ihu_lfp coordinates=$E_outflow,$N_outflow --overwrite
-#r.accumulate direction=ihu_fdir subwatershed=ihu_watershed longest_flow_path=ihu_lfp coordinates=347825,630875 --overwrite
-
+r.accumulate direction=ihu_fdir subwatershed=ihu_watershed accumulation=facc longest_flow_path=ihu_lfp coordinates=$E_outflow,$N_outflow --overwrite
 d.vect ihu_streams
 d.vect ihu_lfp color=blue
+
+
+
+# 2. TOPMODEL TOPOGRAPHIC INDEX
+r.topidx input=ihu_demfill output=topidx
+r.mapcalc expression="topidx_watershed=if(isnull(ihu_watershed),null(),topidx)"
+d.rast topidx_watershed
+# NOTE: topidx_watershed is not calculated for reservoirs (flat areas)
+
+
+
 
 
 

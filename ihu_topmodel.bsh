@@ -192,3 +192,65 @@ d.rast subwatersheds
 d.vect ihu_lfp color=blue width=3
 d.vect suboutlets fill_color=red icon=basic/circle size=10
 d.vect ihu_streams
+
+# Note that this subcatchment is really unevenly split (just like the online
+# tutorial) and so should be modelled as a multi-subwatershed model with two
+# separate r.topmodel models. However stick with one model for now, as with
+# the tutorial.
+
+
+# Creating the last set of the parameters input file
+v.db.addtable map=ihu_lfp
+v.to.db map=ihu_lfp option=length units=meters columns=length_m
+v.db.select map=ihu_lfp
+# Value we want is 2nd line when printed vertically
+lfp_length=`v.db.select -c map=ihu_lfp format=vertical | sed -n '2p'`
+echo $lfp_length
+
+# The longest flow length is roughly 54,000 m. For each of 10 variable
+# contributing areas, a distance of 54,000 m is accumulated.
+v.db.addtable map=suboutlets
+v.db.addcolumn map=suboutlets columns="distance_m real"
+v.db.update map=suboutlets column=distance_m query_column="cat*$lfp_length"
+
+# Given problems with outlet map earlier, create one based on stream
+# network outflow point
+echo "1|$E_outflow|$N_outflow|output" | v.in.ascii in=- x=2 y=3 cat=1 columns='cat int, x double precision, y double precision, label varchar(20)' out=outlet --overwrite
+
+# The cumulative area ratios of 10 subwatersheds can be obtained from the flow
+# accumulation raster.
+v.what.rast map=suboutlets raster=facc column=facc
+v.what.rast map=outlet raster=facc column=facc
+v.db.select map=outlet
+# Value we want is 5th line when printed vertically
+watershed_cells=`v.db.select -c map=outlet format=vertical | sed -n '5p'`
+echo $watershed_cells
+
+# The total number of cells within the watershed is 202684, stored in the
+# watershed_cells script variable. Divide the facc column in the suboutlets
+# vector by this number to obtain the cumulative area ratios.
+v.db.addcolumn map=suboutlets columns="area_ratio real"
+v.db.update map=suboutlets column=area_ratio query_column="1-facc/$watershed_cells."
+v.db.select -c suboutlets columns=distance_m,area_ratio separator=tab
+# Just make sure to append a . after $watershed_cells to force a floating-point
+# division.
+
+
+
+
+# Input template of topmod_parameters
+topmod_params_init='topmod_params_init.txt'
+echo 'topmodel paramenters file used is' $topmod_params_init
+# topmod_params_init is a template; simply add correct area on line 7 and area
+# ratios First 6 lines the same for everything
+head --lines 6 $topmod_params_init > topmod_params.txt
+# Catchment area
+r.stats -an topmod_subbasin1 --quiet | awk '{print $2}' >> topmod_params.txt
+# Next 54 lines of template same for everything
+tail --lines 54 $topmod_params_init >> topmod_params.txt
+
+# Cumulative area ratios
+./calculate_area_ratios.bsh >> topmod_params.txt
+
+
+

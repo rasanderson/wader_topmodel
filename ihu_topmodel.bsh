@@ -4,9 +4,21 @@
 # from tutorial. Begin with headwater-based one (Ettrick
 # Water, 332 G_NAME="Tweed (Source to Ettrick Water)") for
 # simplicity.
+# Express default region explictly (seems unreliable in GRASS 8.0)
+g.region n=672200 s=568000 e=435400 w=301300 res=50 
+r.mask -r
 
 # Extract out Ettrick Water IHU
 v.extract input=wader_ihu_groups output=ihu_target where="cat = 292" --overwrite
+# Encountered problems creating reliable stream network from original DEM
+# For Campy work used r.fill.dem first, just on the IHU (subcatchment for
+# Campy. Try the same here.
+# g.region vect=ihu_target
+v.to.rast input=ihu_target output=MASK use=val value=1 --overwrite
+g.region zoom=MASK
+r.mapcalc expression=ihu_dem=ceh_ihdtm_50m --overwrite
+r.colors map=ihu_dem color=elevation
+
 # Clip out rivers
 v.clip input=tweed_rivers clip=ihu_target output=ihu_rivers --overwrite
 
@@ -78,23 +90,23 @@ v.what -ag map=ihu_streams_net coordinates=348574.161543829,631541.683702573| gr
 # this stream network.
 v.extract input=ihu_streams_net where=comp=1 output=ihu_streams_watershed --overwrite
 
-# Not sure if next is needed given good DEM (in theory) so comment out for now
-
-# Let’s set the computational region that is big enough to contain the watershed.
+# Not sure if next is needed given good DEM (in theory) so comment out for
+# now. Let’s set the computational region that is big enough to contain the
+# watershed.
 # A buffer of 5,000 metres (100 times the 50m resolution) is used.
 # g.region -a vector=ihu_streams_watershed n=n+5000 s=s-5000 e=e+5000 w=w-5000
-g.region -a vector=ihu_streams_watershed
+# g.region -a vector=ihu_streams_watershed
 # Check region with g.region -p as some strange rounding errors
 # Clip CEH DEM to computational region
-r.mapcalc expression=ihu_dem=ceh_ihdtm_50m --overwrite
+# r.mapcalc expression=ihu_dem=ceh_ihdtm_50m --overwrite
 
 # Burn the stream network into the DEM and calculate flow directions. Unlike
 # some other flow direction tools, r.watershed does not require sinks to be
 # filled because it uses a least-cost algorithm.
-v.to.rast input=ihu_streams_watershed output=ihu_streams_watershed use=val
-r.mapcalc expression="ihu_dem_burned=if(isnull(ihu_streams_watershed),ihu_dem,-9999)"
+# v.to.rast input=ihu_streams_watershed output=ihu_streams_watershed use=val
+# r.mapcalc expression="ihu_dem_burned=if(isnull(ihu_streams_watershed),ihu_dem,-9999)"
 #r.watershed elevation=ihu_dem_burned drainage=ihu_fdir stream=ihu_watershed_streams threshold=10 --overwrite
-r.watershed -s elevation=ihu_dem_burned drainage=ihu_fdir accumulation=ihu_facc direction=ihu_direction stream=ihu_watershed_streams threshold=25 --overwrite
+# r.watershed -s elevation=ihu_dem_burned drainage=ihu_fdir accumulation=ihu_facc direction=ihu_direction stream=ihu_watershed_streams threshold=25 --overwrite
 
 # Now we can delineate the watershed and display the longest flow path
 # Note: r.accumulate may neet to be installed with g.extension
@@ -103,17 +115,68 @@ r.watershed -s elevation=ihu_dem_burned drainage=ihu_fdir accumulation=ihu_facc 
 #echo "1|348275|631375|outlet" > ihu_output2.txt
 #cat ihu_output2.txt | v.in.ascii in=- out=ihu_outlet2 x=2 y=3 cat=1 columns='cat int, x double precision, y double precision, label varchar(20)' --overwrite
 #r.accumulate direction=ihu_fdir outlet=ihu_outlet2 subwatershed=ihu_watershed accumulation=ihu_facc longest_flow_path=ihu_lfp --overwrite
-r.accumulate direction=ihu_fdir subwatershed=ihu_watershed longest_flow_path=ihu_lfp coordinates=347825,630875 --overwrite
+# r.accumulate direction=ihu_fdir subwatershed=ihu_watershed longest_flow_path=ihu_lfp coordinates=347825,630875 --overwrite
 
 # Convert the watershed raster to vector.
-r.to.vect input=watershed type=area output=watershed
+# r.to.vect input=watershed type=area output=watershed
+
+# Given problems with both stream network reliability from CEH and DEM, try
+# filling and recreating.
+g.region res=50
+r.resamp.interp input=ihu_dem output=ihu_dem2 --overwrite
+r.fill.dir input=ihu_dem output=ihu_demfill direction=ihu_demdir areas=ihu_dem_problems --overwrite
+# If subcatch includes the River Tweed at its lower reaches, it is classed
+# as -1000
+# r.mapcalc expression="ihu_demfill=if(ihu_demfill==-1000,null(),ihu_demfill)" --overwrite
+r.colors ihu_demfill color=elevation
+# generate elevation map of pixelwise differences to see obtained terrain 
+# alterations
+#r.mapcalc "ihu_demdiff = ihu_demfill - ihu_dem" --overwrite
+#r.colors ihu_demdiff color=differences
+
+# assess univariate statistics of differences
+# r.univar -e ihu_demdiff
+
+# vectorize filled areas (here all fills are of positive value, 
+# see r.univar output)
+# r.mapcalc "ihu_demfill_area = if(ihu_demdiff > 0.0, 1, null() )"
+# r.to.vect input=ihu_demfill_area output=ihu_demfill_area type=area --overwrite
+
+# generate shaded terrain for better visibility of results
+r.relief input=ihu_demfill output=ihu_demfill_shade --overwrite
+
+#d.mon wx0
+d.shade shade=ihu_demfill_shade color=ihu_demfill
+d.vect ihu_demfill_area type=boundary color=red
 
 
+# Now try and display streams
+#r.watershed -s elevation=ihu_demfill drainage=ihu_fdir accumulation=ihu_facc stream=ihu_watershed_streams threshold=10000 --overwrite
+r.stream.extract elevation=ihu_demfill stream_raster=ihu_watershed_streams direction=ihu_fdir threshold=1 --verbose --overwrite
+d.rast ihu_watershed_streams
+r.stream.order stream_rast=ihu_watershed_streams direction=ihu_fdir strahler=ihu_strahler horton=ihu_horton --overwrite
+d.erase
+d.rast ihu_strahler
+d.rast ihu_horton
+
+output_stream=`r.stats -n ihu_strahler | tail -1`
+echo 'the highest stream number found is' $output_stream
+
+r.mapcalc expression="output_stream_dem=if(ihu_strahler==$output_stream, ihu_demfill,null())" --overwrite
+r.stats -gn output_stream_dem > output_flow.txt
+
+# Assume output E and N coords are at minimum DEM of this stream
+E_outflow=`cat output_flow.txt | xargs -n3 | sort -nrk3,3 | tail -1 | awk '{print $1}'`
+N_outflow=`cat output_flow.txt | xargs -n3 | sort -nrk3,3 | tail -1 | awk '{print $2}'`
+
+echo 'easting and northing coordinates for outflow are respectively' $E_outflow, $N_outflow
 
 
+r.accumulate direction=ihu_fdir longest_flow_path=ihu_lfp coordinates=$E_outflow,$N_outflow --overwrite
+#r.accumulate direction=ihu_fdir subwatershed=ihu_watershed longest_flow_path=ihu_lfp coordinates=347825,630875 --overwrite
 
-
-
+d.vect ihu_streams
+d.vect ihu_lfp color=blue
 
 
 

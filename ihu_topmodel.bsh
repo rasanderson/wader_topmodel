@@ -183,7 +183,12 @@ d.rast topidx_watershed
 # NOTE: topidx_watershed is not calculated for reservoirs (flat areas)
 
 
-
-
-
-
+# 3. TOPMODEL PARAMETERS
+# suboutlets.txt created with divisions every 10% along lfp
+v.segment input=ihu_lfp rules=suboutlets.txt output=suboutlets --overwrite
+r.accumulate direction=ihu_fdir outlet=suboutlets subwatershed=subwatersheds --overwrite
+d.erase
+d.rast subwatersheds
+d.vect ihu_lfp color=blue width=3
+d.vect suboutlets fill_color=red icon=basic/circle size=10
+d.vect ihu_streams

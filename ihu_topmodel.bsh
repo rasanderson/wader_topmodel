@@ -281,6 +281,58 @@ r.topmodel -p topidx=ihu_topidx ntopidxclasses=30 outtopidxstats=topidxstats.txt
 # Since the first line represents the maximum topographic index, its second
 # column must always be 0.
 
+# 5. WEATHER DATA
+# Taken from NCDC weather stations (which use Met Office ones) as should be
+# easier to download. As the info is in a different projection system, need
+# to create a different GRASS mapset to handle the data first.
+# Also need to run the fetch_ghcnd_inventory.py, fetch_ncdc_prcp_stations.py
+# and fetch_ncdc_evap_stations.py first which create various .db and 
+# .json files with info. Remember to export the NCDC access token to Linux
+# environment.
+# Creating weather station vectors
+#
+# The coordinates of NCDC weather stations are in latitude and longitude,
+# so we need to create a new latlong location in EPSG:4326. Open a new terminal.
+#
+# grass -c epsg:4326 grassdata/epsg4326
+# 
+# Import both ncdc_prcp_stations and ncdc_evap_stations. We will use data from
+# January 1, 2010 to December 31, 2020.
+#
+# v.in.db table=ncdc_prcp_stations database=data.db x=longitude y=latitude z=elevation key=cat output=ncdc_prcp_stations where="id in (select id from ghcnd_inventory where datatypeid='PRCP' and minyear <= 2010 and maxyear >= 2019)" --overwrite
+# v.in.db table=ncdc_evap_stations database=data.db x=longitude y=latitude z=elevation key=cat output=ncdc_evap_stations where="id in (select id from ghcnd_inventory where datatypeid='EVAP' and minyear <= 2010 and maxyear >= 2019)"
+# Import the watershed vector from the Wader location. Tutorial recommends the
+# watershed, but I'm going to use the whole region.
+#
+# v.proj location=epsg2240 input=watershed # Recommended
+# v.proj location=uk input=whole_region@PERMANENT # Used this
+#
+# There are no EVAP stations, and 7 for whole Wader region, if I slightly
+# expand the whole_region with a buffer.
+# v.buffer -s input=whole_region output=whole_region_buff distance=0.1 --overwrite
+#
+# Let’s see which weather stations are within or close to the watershed. Create
+# the Voronoi diagrams of ncdc_prcp_stations and ncdc_evap_stations, and select
+# those stations within the Voronoi polygons. There are 116,459 points in
+# ncdc_prcp_stations, but calculating their Voronoi polygons should not take
+# long. It took about 34 seconds on my i5 laptop.
+#
+# g.region vect=whole_region_buff
+# v.voronoi input=ncdc_prcp_stations output=ncdc_prcp_stations_voronoi # Used
+# v.voronoi input=ncdc_evap_stations output=ncdc_evap_stations_voronoi # Not used
+#
+# v.select ainput=ncdc_prcp_stations_voronoi binput=whole_region_buff output=prcp_stations_voronoi # Used
+# v.select ainput=ncdc_evap_stations_voronoi binput=watershed output=evap_stations_voronoi # Not used
+# 
+# v.select ainput=ncdc_prcp_stations binput=prcp_stations_voronoi output=prcp_stations # Used
+# v.select ainput=ncdc_evap_stations binput=evap_stations_voronoi output=evap_stations # Not used
+# Now go back to main Wader GRASS location
+v.proj location=epsg4326 mapset=PERMANENT input=prcp_stations_voronoi
+v.proj location=epsg4326 mapset=PERMANENT input=prcp_stations
+# Now download the daily precipitation data
+# tmod.ncdc prcp_voronoi=prcp_stations_voronoi_watershed evap_voronoi=evap_stations_voronoi_watershed start_date=2010-01-01 end_date=2020-12-31 output=input_evap.txt # Original
+tmod.ncdc prcp_voronoi=prcp_stations_voronoi_watershed start_date=2010-01-01 end_date=2019-12-31 output=input_evap.txt
+
 
 
 

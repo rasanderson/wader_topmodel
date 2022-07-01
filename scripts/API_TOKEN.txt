@@ -1,0 +1,4 @@
+QKMmCdnRNOOeTMOQNEGggwSGjpnvVHOZ
+Use 
+export NCDC_API_TOKENS="QKMmCdnRNOOeTMOQNEGggwSGjpnvVHOZ"
+before using it.

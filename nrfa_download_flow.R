@@ -2,4 +2,4 @@
 
 library(nrfa)
 flowdata <- gdf(id = "21007")
-write.table(flowdata, "nrfa_21007.txt", row.names=FALSE, col.names=FALSE)
+write.table(flowdata, "obs.txt", row.names=FALSE, col.names=FALSE)

@@ -1,3 +1,5 @@
+# From nrfa_download_flow.R for 21007 ideal start_date=2010-01-01 end_date=2020-12-31
+# Q [m^3/d]
 12.52
 9.939
 9.656

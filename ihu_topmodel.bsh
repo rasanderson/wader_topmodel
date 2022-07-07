@@ -365,7 +365,14 @@ r.topmodel -p topidx=ihu_topidx ntopidxclasses=30 outtopidxstats=topidxstats.txt
 # Note: this actually runs to 30th Sept 2019 via rnrfa. NRFA website
 # gives to current date, but on download also ends 30th Sept.
 # See R script nrfa_download_flow.R for simple download of a station.
-# saved in nrfa_21007.txt
+# saved in obs.txt to match tutorial
+# Need to change to something easier later!
+#nrfa_station_id=21007
+#echo "# From nrfa_download_flow.R for $nrfa_station_id ideal start_date=2010-01-01 end_date=2020-12-31" > tmp.txt
+#echo "# Q [m^3/d]" >> tmp.txt
+#cat obs.txt >> tmp.txt
+#mv tmp.txt obs.txt
+
 
 # Need to assemble rainfall and PET into a single file
 # original online tutorial creates a file called input_evap.txt for

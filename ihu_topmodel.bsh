@@ -392,11 +392,23 @@ r.topmodel -p topidx=ihu_topidx ntopidxclasses=30 outtopidxstats=topidxstats.txt
 
 
 
-
-
-
-
-
-
-
-
+# Calibration
+# We just use the evap file, not pet
+# As NRFA only goes to September 2019, use this as max date
+# get the number of days for calibration period
+#scripts/get_num_days.py 2010-01-01 2015-12-31
+# Returns 2191
+head -9 input_evap.txt > input_c_evap.txt
+tail +10 input_evap.txt | sed '2191q' >> input_c_evap.txt
+head -2 obs.txt > obs_c.txt
+tail +3 obs.txt | sed '2191q' >> obs_c.txt
+# For validation skip to january 1st 2015
+#scripts/get_num_days.py 2010-01-01 2014-12-31
+# Returns 1826
+# Skip the first 1,826 records from input_evap.txt, input_pet.txt, and obs.txt.
+# BUT the NRFA data sometimes incomplete, so have to check that filesizes
+# match
+head -9 input_evap.txt > input_v_evap.txt
+tail +1836 input_evap.txt >> input_v_evap.txt
+head -2 obs.txt > obs_v.txt
+tail +1829 obs.txt >> obs_v.txt

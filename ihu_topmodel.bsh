@@ -163,6 +163,8 @@ d.vect ihu_lfp color=blue width=5
 
 
 # 2. TOPMODEL TOPOGRAPHIC INDEX
+# ihu_demfill does not appear to be in metres (suspect it is in decimetres)
+r.mapcalc expression="ihu_demfill=ihu_demfill/10"
 r.topidx input=ihu_demfill output=ihu_topidx --overwrite
 r.mapcalc expression="ihu_topidx_watershed=if(isnull(ihu_watershed),null(),ihu_topidx)" --overwrite
 d.rast ihu_topidx_watershed

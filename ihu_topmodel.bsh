@@ -5,7 +5,7 @@
 # Water, 332 G_NAME="Tweed (Source to Ettrick Water)") for
 # simplicity.
 # Express default region explictly (seems unreliable in GRASS 8.0)
-g.region n=672200 s=568000 e=435400 w=301300 res=50 
+g.region -a n=672200 s=568000 e=435400 w=301300 res=50 
 r.mask -r
 
 # Extract out Ettrick Water IHU
@@ -15,7 +15,7 @@ v.extract input=wader_ihu_groups output=ihu_target where="cat = 292" --overwrite
 # Campy. Try the same here.
 # g.region vect=ihu_target
 v.to.rast input=ihu_target output=MASK use=val value=1 --overwrite
-g.region zoom=MASK
+g.region -a vect=ihu_target res=50
 r.mapcalc expression=ihu_dem=ceh_ihdtm_50m --overwrite
 r.colors map=ihu_dem color=elevation
 
@@ -74,7 +74,8 @@ v.to.db -p map=ihu_stream_end2 option=coor
 # with the upstream part of the stream network.
 # NOTE: original version does not have id number in. This is needed as the cat
 # number is not changed by the v.edit break earlier.
-v.edit map=ihu_streams tool=delete id=1390 coords=348564.16154383,631536.207512097
+# Next line also not reliable
+#v.edit map=ihu_streams tool=delete id=1390 coords=348564.16154383,631536.207512097
 
 # Above process leaves two short detached bits of stream, but shouldn't be
 # a problem as downstream of outlet.
@@ -122,32 +123,17 @@ v.extract input=ihu_streams_net where=comp=1 output=ihu_streams_watershed --over
 
 # Given problems with both stream network reliability from CEH and DEM, try
 # filling and recreating.
-g.region res=50
+g.region -a res=50
 r.resamp.interp input=ihu_dem output=ihu_dem2 --overwrite
 r.fill.dir input=ihu_dem output=ihu_demfill direction=ihu_demdir areas=ihu_dem_problems --overwrite
 # If subcatch includes the River Tweed at its lower reaches, it is classed
 # as -1000
-# r.mapcalc expression="ihu_demfill=if(ihu_demfill==-1000,null(),ihu_demfill)" --overwrite
+r.mapcalc expression="ihu_demfill=if(ihu_demfill==-1000,null(),ihu_demfill)" --overwrite
 r.colors ihu_demfill color=elevation
-# generate elevation map of pixelwise differences to see obtained terrain 
-# alterations
-#r.mapcalc "ihu_demdiff = ihu_demfill - ihu_dem" --overwrite
-#r.colors ihu_demdiff color=differences
-
-# assess univariate statistics of differences
-# r.univar -e ihu_demdiff
-
-# vectorize filled areas (here all fills are of positive value, 
-# see r.univar output)
-# r.mapcalc "ihu_demfill_area = if(ihu_demdiff > 0.0, 1, null() )"
-# r.to.vect input=ihu_demfill_area output=ihu_demfill_area type=area --overwrite
 
 # generate shaded terrain for better visibility of results
 r.relief input=ihu_demfill output=ihu_demfill_shade --overwrite
-
-#d.mon wx0
 d.shade shade=ihu_demfill_shade color=ihu_demfill
-d.vect ihu_demfill_area type=boundary color=red
 
 
 # Now try and display streams
@@ -172,13 +158,13 @@ N_outflow=`cat output_flow.txt | xargs -n3 | sort -nrk3,3 | tail -1 | awk '{prin
 echo 'easting and northing coordinates for outflow are respectively' $E_outflow, $N_outflow
 r.accumulate direction=ihu_fdir subwatershed=ihu_watershed accumulation=facc longest_flow_path=ihu_lfp coordinates=$E_outflow,$N_outflow --overwrite
 d.vect ihu_streams
-d.vect ihu_lfp color=blue
+d.vect ihu_lfp color=blue width=5
 
 
 
 # 2. TOPMODEL TOPOGRAPHIC INDEX
 r.topidx input=ihu_demfill output=ihu_topidx --overwrite
-r.mapcalc expression="topidx_watershed=if(isnull(ihu_watershed),null(),ihu_topidx)" --overwrite
+r.mapcalc expression="ihu_topidx_watershed=if(isnull(ihu_watershed),null(),ihu_topidx)" --overwrite
 d.rast ihu_topidx_watershed
 # NOTE: topidx_watershed is not calculated for reservoirs (flat areas)
 
@@ -407,8 +393,14 @@ tail +3 obs.txt | sed '2191q' >> obs_c.txt
 # Returns 1826
 # Skip the first 1,826 records from input_evap.txt, input_pet.txt, and obs.txt.
 # BUT the NRFA data sometimes incomplete, so have to check that filesizes
-# match
+# match so need to check number of days to end of NRFA data
+#get_num_days.py 2015-01-01 2019-09-30
+# Returns 1734
 head -9 input_evap.txt > input_v_evap.txt
-tail +1836 input_evap.txt >> input_v_evap.txt
+tail +1836 input_evap.txt | sed '1734q' >> input_v_evap.txt
 head -2 obs.txt > obs_v.txt
-tail +1829 obs.txt >> obs_v.txt
+tail +1829 obs.txt | sed '1734q' >> obs_v.txt
+
+
+# Before running the calibration script in the data folder copy the
+# topmodel_params.txt to data/params.txt

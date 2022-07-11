@@ -1,125 +1,103 @@
 #!/bin/bash
 
-# Work on one Integrated Hydrological Unit using method
-# from tutorial. Begin with headwater-based one (Ettrick
-# Water, 332 G_NAME="Tweed (Source to Ettrick Water)") for
-# simplicity.
-# Express default region explictly (seems unreliable in GRASS 8.0)
-g.region -a n=672200 s=568000 e=435400 w=301300 res=50 
+# This adapts the approach used in Tyne catchment for Tweed
+g.region -a zoom=tweed_ihu_groups_50m res=50
+
+#######################################
+# Note that Tweed has 8 IHU groups. These are much bigger than
+# the ones we worked with for the Tyne, so we may have to 
+# sub-divide. Tyne had optimum at 20
+
+subcatch_totno='8'
+echo 'total number of subcatchments being analysed is ' $subcatch_totno
+max_subcatch_no=$subcatch_totno
+
+subcatch_no='4'
+echo 'initialised subcatchment number is set to' $subcatch_no
+max_subcatch_no=$subcatch_no # Just for debugging one subcatchment at a time
+
+# Latitude in degrees (needed for evapotranspiration calculation)
+latitude='55'
+echo 'latitude is set to' $latitude
+
+## Input file mean daily temperature.  Each row a day, each column a catchment,
+## i.e. 15 cols in total for the Tyne dataset, 7 columns for Jim's Enigma dataset
+#mean_temp_csv_file='tyne_meantemp_allsubcatch30.csv'
+#echo 'temperature file used is' $mean_temp_csv_file
+#
+## Input file mean daily rainfall.  Each row a day, each column a catchment,
+## i.e. 15 cols in total for the Tyne dataset, 7 columns for Jim's Enigma dataset
+#mean_rain_csv_file='tyne_cleanrain_allsubcatch30.csv'
+#echo 'rainfaill file used is ' $mean_rain_csv_file
+#
+## Input file with rules for splitting up longest flow path into 10% sections
+#segment_rules='segment_rules.txt'
+#echo 'segment rules file for splitting flow into sections is' $segment_rules
+
+# Input template of topmod_parameters
+topmod_params_init='topmod_params_init.txt'
+echo 'topmodel paramenters file used is' $topmod_params_init
+
+# Input raster map containing DEM for whole study area
+topmod_demraw='tweed_ihdtm_50m'
+echo 'raster map of DEM used is' $topmod_demraw
+
+# Input raster map containing all (sub)catchments for study. 
+topmod_allcatch='tweed_ihu_50m' # aligns better
+echo 'raster map containing all catchments is' $topmod_allcatch
+
+# Input raster map (sub)catchments.  Each (sub)catchment has a separate number
+topmod_subcatch='tweed_ihu_groups_50m'
+echo 'raster map of subcatchment used is' $topmod_subcatch
+
+# Number of days to be modelled
+# If using NRFA data it stops in September 2019 for latest upload
+ntimesteps=`scripts/get_num_days.py 2010-01-01 2019-09-30`
+
+echo "If happy with input specification hit return to continue"
+read
+#### End of input variable specification ####
+#############################################
+
+d.mon stop=wx1
+d.mon start=wx1
+
+#while [ $subcatch_no -le $subcatch_totno ]
+while [ $subcatch_no -le $max_subcatch_no ] # debugging one catchmnt
+do
+
+echo "****************************************"
+echo $subcatch_no
+d.erase
+
+# Remove MASK if present
 r.mask -r
 
-# Extract out Ettrick Water IHU
-v.extract input=wader_ihu_groups output=ihu_target where="cat = 292" --overwrite
+# Set region to cover all study catchments
+g.region rast=$topmod_allcatch res=50
+
+
+# Set MASK to correct subcatchment; topmodel will now be run only in the area
+# of topmod_onecatch 
+g.remove -f type=raster name=topmod_onecatch
+r.mapcalc expression="topmod_onecatch=if($topmod_subcatch==$subcatch_no,1,null())" --overwrite
+g.region -a zoom=topmod_onecatch res=50
+# Need resolution to help clean longest flow path vector
+resolution=`g.region -p | grep nsres | awk '{print $2}'`
+d.mon sel=wx1
+r.mask topmod_onecatch --quiet
+
+
 # Encountered problems creating reliable stream network from original DEM
 # For Campy work used r.fill.dem first, just on the IHU (subcatchment for
 # Campy. Try the same here.
-# g.region vect=ihu_target
-v.to.rast input=ihu_target output=MASK use=val value=1 --overwrite
-g.region -a vect=ihu_target res=50
 r.mapcalc expression=ihu_dem=ceh_ihdtm_50m --overwrite
 r.colors map=ihu_dem color=elevation
-
-# Clip out rivers
-v.clip input=tweed_rivers clip=ihu_target output=ihu_rivers --overwrite
 
 # Coords just downstream of NRFA 12 (21007)
 # Use d.where | awk '{printf "%f\%f\point\n", $1, $2}' | v.in.ascii ...
 # if using a d.mon screen
-#
 echo "348577.63|631535.35|point" | v.in.ascii input=- output=ihu_outlet columns='x double precision, y double precision, label varchar(20)' --overwrite
-# Create stub to rivers and extend
-v.db.addcolumn map=ihu_outlet columns="to_cat int"
-v.distance from=ihu_outlet to=ihu_rivers output=ihu_outlet_to_rivers upload=cat column=to_cat --overwrite
-# IMPORTANT. Due to a bug in GRASS #1408 the v.distance line does not work correctly. You
-# must manually 
-# Extract end node of connecting line
-# db.droptable -f table=ihu_outlet_to_rivers
-# v.db.addtable map=ihu_outlet_to_rivers
-# v.to.points input=ihu_outlet_to_rivers layer=-1 use=end output=ihu_outlet_snapped_end --overwrite
-# Change category numer from 2 to 1
-# v.category input=ihu_outlet_snapped_end option=chlayer layer=2,1 output=ihu_outlet_snapped --overwrite
-
-
-# Now we need to break the main stream network where are stub joins
-# Read the stream category at the outlet.
-v.db.select map=ihu_outlet columns=to_cat
-
-# That is 10952 in the ihu_rivers vector.
-# Create a new vector that contains the end node of this stream feature.
-# Again, seems to be a bug in that v.segment does not create end point
-# echo P 1 10952 100% | v.segment input=ihu_rivers output=ihu_stream_end --overwrite
-# CLUNKY workaround
-g.region vect=ihu_outlet_to_rivers
-v.in.region output=tmp_region --overwrite
-g.region vect=ihu_streams
-v.buffer input=tmp_region output=tmp_region_buffer distance=10 --overwrite
-v.clip input=ihu_streams clip=tmp_region_buffer output=ihu_streams_clip --overwrite
-v.to.points input=ihu_streams_clip use=end output=ihu_stream_end --overwrite
-v.to.points input=ihu_streams_clip use=start output=ihu_stream_end2 --overwrite
-
-
-# Read the coordinates of the snapped outlet.
-v.to.db -p map=ihu_outlet_snapped option=coor
-# The outlet is at 348574.161543829|631541.683702573 
-# Make a copy of ihu_rivers and break the stream at the outlet.
-g.copy vector=ihu_rivers,ihu_streams --overwrite
-v.edit map=ihu_streams tool=break coor=348574.161543829,631541.683702573
-
-# We now read the coordinates at the stream end and break it off
-# v.to.db -p map=ihu_stream_end option=coor
-v.to.db -p map=ihu_stream_end2 option=coor
-# The coordiates are 348564.16154383|631536.207512097. Delete the downstream
-# piece of the stream. This edit will delete more features at the downstream
-# side of the watershed, but that should be fine because we are only concerned
-# with the upstream part of the stream network.
-# NOTE: original version does not have id number in. This is needed as the cat
-# number is not changed by the v.edit break earlier.
-# Next line also not reliable
-#v.edit map=ihu_streams tool=delete id=1390 coords=348564.16154383,631536.207512097
-
-# Above process leaves two short detached bits of stream, but shouldn't be
-# a problem as downstream of outlet.
-
-# Compute weakly connected components in the stream network and find the
-# component ID inside the watershed. For querying the component ID, use the
-# coordinates of the snapped outlet.
-v.net.components input=ihu_streams output=ihu_streams_net method=weak --overwrite
-# Coords from ihu_outlet_snapped above 
-v.what -ag map=ihu_streams_net coordinates=348574.161543829,631541.683702573| grep comp=
-
-# The component ID of the stream network inside the watershed is 1. Extract
-# this stream network.
-v.extract input=ihu_streams_net where=comp=1 output=ihu_streams_watershed --overwrite
-
-# Not sure if next is needed given good DEM (in theory) so comment out for
-# now. Let’s set the computational region that is big enough to contain the
-# watershed.
-# A buffer of 5,000 metres (100 times the 50m resolution) is used.
-# g.region -a vector=ihu_streams_watershed n=n+5000 s=s-5000 e=e+5000 w=w-5000
-# g.region -a vector=ihu_streams_watershed
-# Check region with g.region -p as some strange rounding errors
-# Clip CEH DEM to computational region
-# r.mapcalc expression=ihu_dem=ceh_ihdtm_50m --overwrite
-
-# Burn the stream network into the DEM and calculate flow directions. Unlike
-# some other flow direction tools, r.watershed does not require sinks to be
-# filled because it uses a least-cost algorithm.
-# v.to.rast input=ihu_streams_watershed output=ihu_streams_watershed use=val
-# r.mapcalc expression="ihu_dem_burned=if(isnull(ihu_streams_watershed),ihu_dem,-9999)"
-#r.watershed elevation=ihu_dem_burned drainage=ihu_fdir stream=ihu_watershed_streams threshold=10 --overwrite
-# r.watershed -s elevation=ihu_dem_burned drainage=ihu_fdir accumulation=ihu_facc direction=ihu_direction stream=ihu_watershed_streams threshold=25 --overwrite
-
-# Now we can delineate the watershed and display the longest flow path
-# Note: r.accumulate may neet to be installed with g.extension
-# r.accumulate direction=ihu_fdir outlet=ihu_outlet_snapped subwatershed=ihu_watershed accumulation=ihu_facc longest_flow_path=ihu_lfp --overwrite
-# Completely stuffs up as 50m misalignment
-#echo "1|348275|631375|outlet" > ihu_output2.txt
-#cat ihu_output2.txt | v.in.ascii in=- out=ihu_outlet2 x=2 y=3 cat=1 columns='cat int, x double precision, y double precision, label varchar(20)' --overwrite
-#r.accumulate direction=ihu_fdir outlet=ihu_outlet2 subwatershed=ihu_watershed accumulation=ihu_facc longest_flow_path=ihu_lfp --overwrite
-# r.accumulate direction=ihu_fdir subwatershed=ihu_watershed longest_flow_path=ihu_lfp coordinates=347825,630875 --overwrite
-
-# Convert the watershed raster to vector.
-# r.to.vect input=watershed type=area output=watershed
 
 # Given problems with both stream network reliability from CEH and DEM, try
 # filling and recreating.
@@ -131,19 +109,12 @@ r.fill.dir input=ihu_dem output=ihu_demfill direction=ihu_demdir areas=ihu_dem_p
 r.mapcalc expression="ihu_demfill=if(ihu_demfill==-1000,null(),ihu_demfill)" --overwrite
 r.colors ihu_demfill color=elevation
 
-# generate shaded terrain for better visibility of results
-r.relief input=ihu_demfill output=ihu_demfill_shade --overwrite
-d.shade shade=ihu_demfill_shade color=ihu_demfill
-
-
 # Now try and display streams
-#r.watershed -s elevation=ihu_demfill drainage=ihu_fdir accumulation=ihu_facc stream=ihu_watershed_streams threshold=10000 --overwrite
 r.stream.extract elevation=ihu_demfill stream_raster=ihu_watershed_streams direction=ihu_fdir threshold=1 --verbose --overwrite
 d.rast ihu_watershed_streams
-r.stream.order stream_rast=ihu_watershed_streams direction=ihu_fdir strahler=ihu_strahler horton=ihu_horton --overwrite
+r.stream.order stream_rast=ihu_watershed_streams direction=ihu_fdir strahler=ihu_strahler --overwrite
 d.erase
 d.rast ihu_strahler
-d.rast ihu_horton
 
 output_stream=`r.stats -n ihu_strahler | tail -1`
 echo 'the highest stream number found is' $output_stream
@@ -157,14 +128,12 @@ N_outflow=`cat output_flow.txt | xargs -n3 | sort -nrk3,3 | tail -1 | awk '{prin
 
 echo 'easting and northing coordinates for outflow are respectively' $E_outflow, $N_outflow
 r.accumulate direction=ihu_fdir subwatershed=ihu_watershed accumulation=facc longest_flow_path=ihu_lfp coordinates=$E_outflow,$N_outflow --overwrite
-d.vect ihu_streams
+d.vect tweed_rivers
 d.vect ihu_lfp color=blue width=5
 
 
 
 # 2. TOPMODEL TOPOGRAPHIC INDEX
-# ihu_demfill does not appear to be in metres (suspect it is in decimetres)
-r.mapcalc expression="ihu_demfill=ihu_demfill/10"
 r.topidx input=ihu_demfill output=ihu_topidx --overwrite
 r.mapcalc expression="ihu_topidx_watershed=if(isnull(ihu_watershed),null(),ihu_topidx)" --overwrite
 d.rast ihu_topidx_watershed
@@ -173,9 +142,9 @@ d.rast ihu_topidx_watershed
 # For later when setting up the topmodel_param.txt file we need the distance
 # along each subwatershed. This needs the stream network to be 'burnt' into
 # the relevant dem as per the tutorial.
-# v.to.rast input=ihu_watershed_streams output=ihu_watershed_streams use=val --overwrite
 r.mapcalc expression="ihu_dem_burned=if(isnull(ihu_watershed_streams),ihu_demfill,-9999)" --overwrite
-r.watershed elevation=ihu_dem_burned drainage=fdir --overwrite
+r.watershed elevation=ihu_dem_burned drainage=ihu_fdir --overwrite
+d.rast ihu_fdir
 
 # Given problems with outlet map earlier, create one based on stream
 # network outflow point
@@ -219,7 +188,6 @@ echo $lfp_length
 v.db.addtable map=ihu_suboutlets
 v.db.addcolumn map=ihu_suboutlets columns="distance_m real"
 v.db.update map=ihu_suboutlets column=distance_m query_column="cat*$lfp_length/10"
-
 
 # The cumulative area ratios of 10 subwatersheds can be obtained from the flow
 # accumulation raster.

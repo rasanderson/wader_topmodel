@@ -238,77 +238,27 @@ r.topmodel -p topidx=ihu_topidx ntopidxclasses=30 outtopidxstats=topidxstats.txt
 # column must always be 0.
 
 # 5. WEATHER DATA
-# Taken from NCDC weather stations (which use Met Office ones) as should be
-# easier to download. As the info is in a different projection system, need
-# to create a different GRASS mapset to handle the data first.
-# Also need to run the fetch_ghcnd_inventory.py, fetch_ncdc_prcp_stations.py
-# and fetch_ncdc_evap_stations.py first which create various .db and 
-# .json files with info. Remember to export the NCDC access token to Linux
-# environment.
-# Creating weather station vectors
-#
-# The coordinates of NCDC weather stations are in latitude and longitude,
-# so we need to create a new latlong location in EPSG:4326. Open a new terminal.
-#
-# grass -c epsg:4326 grassdata/epsg4326
-# 
-# Import both ncdc_prcp_stations and ncdc_evap_stations. We will use data from
-# January 1, 2010 to December 31, 2020.
-#
-# v.in.db table=ncdc_prcp_stations database=data.db x=longitude y=latitude z=elevation key=cat output=ncdc_prcp_stations where="id in (select id from ghcnd_inventory where datatypeid='PRCP' and minyear <= 2010 and maxyear >= 2019)" --overwrite
-# v.in.db table=ncdc_evap_stations database=data.db x=longitude y=latitude z=elevation key=cat output=ncdc_evap_stations where="id in (select id from ghcnd_inventory where datatypeid='EVAP' and minyear <= 2010 and maxyear >= 2019)"
-# Import the watershed vector from the Wader location. Tutorial recommends the
-# watershed, but I'm going to use the whole region.
-#
-# v.proj location=epsg2240 input=watershed # Recommended
-# v.proj location=uk input=whole_region@PERMANENT # Used this
-#
-# There are no EVAP stations, and 7 for whole Wader region, if I slightly
-# expand the whole_region with a buffer.
-# v.buffer -s input=whole_region output=whole_region_buff distance=0.1 --overwrite
-#
-# Let’s see which weather stations are within or close to the watershed. Create
-# the Voronoi diagrams of ncdc_prcp_stations and ncdc_evap_stations, and select
-# those stations within the Voronoi polygons. There are 116,459 points in
-# ncdc_prcp_stations, but calculating their Voronoi polygons should not take
-# long. It took about 34 seconds on my i5 laptop.
-#
-# g.region vect=whole_region_buff
-# v.voronoi input=ncdc_prcp_stations output=ncdc_prcp_stations_voronoi # Used
-# v.voronoi input=ncdc_evap_stations output=ncdc_evap_stations_voronoi # Not used
-#
-# v.select ainput=ncdc_prcp_stations_voronoi binput=whole_region_buff output=prcp_stations_voronoi # Used
-# v.select ainput=ncdc_evap_stations_voronoi binput=watershed output=evap_stations_voronoi # Not used
-# 
-# v.select ainput=ncdc_prcp_stations binput=prcp_stations_voronoi output=prcp_stations # Used
-# v.select ainput=ncdc_evap_stations binput=evap_stations_voronoi output=evap_stations # Not used
-# Now go back to main Wader GRASS location
-# v.proj location=epsg4326 mapset=PERMANENT input=prcp_stations_voronoi
-# v.proj location=epsg4326 mapset=PERMANENT input=prcp_stations
-# Now download the daily precipitation data
-# tmod.ncdc prcp_voronoi=prcp_stations_voronoi_watershed evap_voronoi=evap_stations_voronoi_watershed start_date=2010-01-01 end_date=2020-12-31 output=input_evap.txt # Original
-# tmod.ncdc.prcp prcp_voronoi=prcp_stations_voronoi start_date=2010-01-01 end_date=2019-12-31 output=input_evap.txt
-
 # There are really too few weather NCDC stations in our area. Have created
 # spatio-temporal daily temperature and rainfall datasets from UKHAD at 1 km
 # from 2010 to 2019 (currently on bces-01 in uk_met mapset).
 # Need to get average rainfall for target subcatchment ihu_watershed
-#r.mapcalc expression="MASK=ihu_watershed" --overwrite
-#g.region -a zoom=MASK res=1000
-#t.rast.mapcalc inputs=wader_rainfall_daily@PERMANENT output=tmp_ihu_rainfall basename=tmp_ihu_rainfall expression="tmp_ihu_rainfall=wader_rainfall_daily" nprocs=4 --overwrite
-#t.rast.univar -u tmp_ihu_rainfall | cut -d'|' -f4 > ihu_rainfall.txt 
-#t.remove -d -f tmp_ihu_rainfall
-#r.mask -r
+r.mapcalc expression="MASK=ihu_watershed" --overwrite
+g.region -a zoom=MASK res=1000
+t.rast.mapcalc inputs=wader_rainfall_daily@PERMANENT output=tmp_ihu_rainfall basename=tmp_ihu_rainfall expression="tmp_ihu_rainfall=wader_rainfall_daily" nprocs=8 --overwrite
+t.rast.univar -u tmp_ihu_rainfall | cut -d'|' -f4 > ihu_rainfall.txt 
+t.remove -d -f tmp_ihu_rainfall
+r.mask -r
 # Convert rainfall to m / day
-#awk '{printf("%.6f\n", ($1/1000))}' ihu_rainfall.txt > ihu_rainfall.txt2
-#mv ihu_rainfall.txt2 ihu_rainfall.txt
+awk '{printf("%.6f\n", ($1/1000))}' ihu_rainfall.txt > ihu_rainfall.txt2
+mv ihu_rainfall.txt2 ihu_rainfall.txt
+g.region -a zoom=MASK res=50
 
 # For PET use the USGS for now, but this is at 1-minute resolution. Might
 # be possible to use EA PET data but this is England-only. Would need to
 # create simple model to get it over the border, but in practice the PET
 # is fairly uniform across the whole region on any given day so probably
 # ok with USGS PET
-
+# Run this in epsg4326 location; just run once
 # Centroid of whole Wader region in epsg4326 location; next only needs running
 # once for whole Wader region as assume roughly the same in each subcatchment
 # -2.4630233218518516,55.558426188481484
@@ -323,54 +273,66 @@ r.topmodel -p topidx=ihu_topidx ntopidxclasses=30 outtopidxstats=topidxstats.txt
 # See R script nrfa_download_flow.R for simple download of a station.
 # saved in obs.txt to match tutorial
 # Need to change to something easier later!
-#nrfa_station_id=21007
-#echo "# From nrfa_download_flow.R for $nrfa_station_id ideal start_date=2010-01-01 end_date=2020-12-31" > tmp.txt
-#echo "# Q [m^3/d]" >> tmp.txt
-#cat obs.txt >> tmp.txt
-#mv tmp.txt obs.txt
+nrfa_station_id=21007
+Rscript nrfa_download_flow.R 21007 2010-01-01 2019-12-31 obs.txt
+echo "# From nrfa_download_flow.R for $nrfa_station_id ideal start_date=2010-01-01 end_date=2020-12-31" > tmp.txt
+echo "# Q [m^3/d]" >> tmp.txt
+cat obs.txt >> tmp.txt
+mv tmp.txt obs.txt
 
 
 # Need to assemble rainfall and PET into a single file
 # original online tutorial creates a file called input_evap.txt for
 # rainfall AND evapotranspiration. A bit confusing, so will rename
 # later!
-#rain_evap_file="input_evap.txt"
-#echo "# Generated by from ihu_topmodel.bsh start_date=2010-01-01 end_date=2019-12-31" > $rain_evap_file
-#echo "# dt [h]: Time step" >> $rain_evap_file
-#echo "24" >> $rain_evap_file
-#echo "" >> $rain_evap_file
-#echo "################################################################################" >> $rain_evap_file
-#echo "# R [m/dt]:  Rainfall" >> $rain_evap_file
-#echo "# Ep [m/dt]: Potential evapotranspiration" >> $rain_evap_file
-#echo "" >> $rain_evap_file
-#echo "# R Ep" >> $rain_evap_file
-#paste -d " " ihu_rainfall.txt usgs_pet.txt >> $rain_evap_file
+rain_evap_file="input_evap.txt"
+echo "# Generated by from ihu_topmodel.bsh start_date=2010-01-01 end_date=2019-12-31" > $rain_evap_file
+echo "# dt [h]: Time step" >> $rain_evap_file
+echo "24" >> $rain_evap_file
+echo "" >> $rain_evap_file
+echo "################################################################################" >> $rain_evap_file
+echo "# R [m/dt]:  Rainfall" >> $rain_evap_file
+echo "# Ep [m/dt]: Potential evapotranspiration" >> $rain_evap_file
+echo "" >> $rain_evap_file
+echo "# R Ep" >> $rain_evap_file
+paste -d " " ihu_rainfall.txt usgs_pet.txt >> $rain_evap_file
 
 
 
-# Calibration
-# We just use the evap file, not pet
-# As NRFA only goes to September 2019, use this as max date
-# get the number of days for calibration period
-#scripts/get_num_days.py 2010-01-01 2015-12-31
-# Returns 2191
-head -9 input_evap.txt > input_c_evap.txt
-tail +10 input_evap.txt | sed '2191q' >> input_c_evap.txt
-head -2 obs.txt > obs_c.txt
-tail +3 obs.txt | sed '2191q' >> obs_c.txt
-# For validation skip to january 1st 2015
-#scripts/get_num_days.py 2010-01-01 2014-12-31
-# Returns 1826
-# Skip the first 1,826 records from input_evap.txt, input_pet.txt, and obs.txt.
-# BUT the NRFA data sometimes incomplete, so have to check that filesizes
-# match so need to check number of days to end of NRFA data
-#get_num_days.py 2015-01-01 2019-09-30
-# Returns 1734
-head -9 input_evap.txt > input_v_evap.txt
-tail +1836 input_evap.txt | sed '1734q' >> input_v_evap.txt
-head -2 obs.txt > obs_v.txt
-tail +1829 obs.txt | sed '1734q' >> obs_v.txt
+## Calibration - skip for now
+## We just use the evap file, not pet
+## As NRFA only goes to September 2019, use this as max date
+## get the number of days for calibration period
+##scripts/get_num_days.py 2010-01-01 2015-12-31
+## Returns 2191
+#head -9 input_evap.txt > input_c_evap.txt
+#tail +10 input_evap.txt | sed '2191q' >> input_c_evap.txt
+#head -2 obs.txt > obs_c.txt
+#tail +3 obs.txt | sed '2191q' >> obs_c.txt
+## For validation skip to january 1st 2015
+##scripts/get_num_days.py 2010-01-01 2014-12-31
+## Returns 1826
+## Skip the first 1,826 records from input_evap.txt, input_pet.txt, and obs.txt.
+## BUT the NRFA data sometimes incomplete, so have to check that filesizes
+## match so need to check number of days to end of NRFA data
+##get_num_days.py 2015-01-01 2019-09-30
+## Returns 1734
+#head -9 input_evap.txt > input_v_evap.txt
+#tail +1836 input_evap.txt | sed '1734q' >> input_v_evap.txt
+#head -2 obs.txt > obs_v.txt
+#tail +1829 obs.txt | sed '1734q' >> obs_v.txt
+#
+#
+## Before running the calibration script in the data folder copy the
+## topmodel_params.txt to data/params.txt
 
+# Run r.topmodel
+r.topmodel param=topmod_params.txt topidxstats=topidxstats.txt input=topmod_R_Ep.txt output=topmod_output.txt --overwrite
 
-# Before running the calibration script in the data folder copy the
-# topmodel_params.txt to data/params.txt
+## Original approach used in Tyne but probably not relevant for Tweed
+## Post-process results to make them easier to read into R
+#tail -n +63 topmod_output.txt > topmod_output_tmp.txt
+#cat topmod_output_tmp.txt | awk '{print $1, $2, $3, $4, $5, $6, $7}' > topmod_output_R.txt
+#rm topmod_output_tmp.txt
+#Rscript postprocess.R $mean_rain_csv_file $ntimesteps $subcatch_no $subcatch_totno
+

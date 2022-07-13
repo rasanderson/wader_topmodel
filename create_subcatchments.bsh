@@ -1,0 +1,62 @@
+#!/bin/bash
+
+# The IHU provided by EA etc are too big and do not reflect hydrology
+# properly. Use approach from Tyne for Tweed to develop more realistic
+# hydrological subcatchment units.
+
+# set computational region
+g.region -p -a zoom=tweed_ihu_50m res=50
+r.mask raster=tweed_ihu_50m
+
+# https://idea.isnew.info/how-to-delineate-stream-networks-in-grass-gis.html
+# Delineating watersheds and identifying stream networks from the same source
+# of elevation data
+# Calculate flow direction and accumulation, and delineate basins in the
+# raster format:
+#r.watershed -a elevation=ceh_ihdtm_50m threshold=50,000 accumulation=tweed_flow_accum basin=tweed_subcatchments --overwrite
+#
+## Extract streams from the flow accumulation raster map from r.watershed so that
+## the stream network output matches the watershed output from r.watershed:
+#r.stream.extract elevation=ceh_ihdtm_50m accumulation=tweed_flow_accum threshold=50,000 stream_vector=tmp_tweed_streams --overwrite
+
+threshold=25000
+
+# Code below will calculate subcatchments and linking points between LFP
+# for each subcatchment which might be useful.
+# calculate drainage directions using r.watershed
+r.watershed -s elevation=ceh_ihdtm_hght_50m drainage=tmp_drain_directions --overwrite
+
+# Resolution
+nsres=`r.info -g map=ceh_ihdtm_hght_50m | grep nsres | cut -d'=' -f2`
+
+# delineate streams using a threshold
+r.accumulate direction=tmp_drain_directions threshold=$threshold stream=tmp_tweed_streams --overwrite
+d.erase
+d.rast ceh_ihdtm_hght_50m
+d.vect tmp_tweed_streams color=blue
+
+# populate stream lengths
+v.db.addtable map=tmp_tweed_streams
+v.to.db map=tmp_tweed_streams option=length columns=length
+
+# create points along the streams starting from downstream
+v.to.points -r input=tmp_tweed_streams output=stream_points dmax=$nsres --overwrite
+
+# find outlets (downstream-most less nsres points)
+cats=`db.select -c sql="select stream_points_2.cat from stream_points_2 \
+    inner join stream_points_1 on stream_points_1.cat = stream_points_2.lcat \
+    where length-along > 0.5*$nsres and length-along < 1.5*$nsres"`
+cats=`echo $cats | tr " " ,`
+v.extract input=stream_points layer=2 cats=$cats output=stream_outlets --overwrite
+
+# calculate longest flow paths and delineate subwatersheds for all outlets
+r.accumulate direction=tmp_drain_directions lfp=lfp id_column=id \
+    outlet=stream_outlets outlet_layer=2 outlet_id_column=lcat \
+    subwatershed=subwatersheds --overwrite
+
+# convert subwatersheds to vector
+r.to.vect input=subwatersheds type=area output=subwatersheds --overwrite
+d.erase
+d.vect subwatersheds
+d.vect tmp_tweed_streams
+d.vect stream_outlets icon=basic/circle color=red size=5 layer=2

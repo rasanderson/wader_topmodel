@@ -19,7 +19,7 @@ r.mask raster=tweed_ihu_50m
 ## the stream network output matches the watershed output from r.watershed:
 #r.stream.extract elevation=ceh_ihdtm_50m accumulation=tweed_flow_accum threshold=50,000 stream_vector=tmp_tweed_streams --overwrite
 
-threshold=25000
+threshold=75000
 
 # Code below will calculate subcatchments and linking points between LFP
 # for each subcatchment which might be useful.

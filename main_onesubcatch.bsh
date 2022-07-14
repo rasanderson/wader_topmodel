@@ -1,18 +1,18 @@
 #!/bin/bash
 
 # This adapts the approach used in Tyne catchment for Tweed
-g.region -a zoom=tweed_ihu_groups_50m res=50
+g.region -a zoom=tweed_ihu_50m res=50
 
 #######################################
-# Note that Tweed has 8 IHU groups. These are much bigger than
-# the ones we worked with for the Tyne, so we may have to 
-# sub-divide. Tyne had optimum at 20
+# Use create_subcatchments.bsh to define number of subcatchments
+# based on threshold value. This initial run uses threshold of
+# 50,000 which gives 26 subcatchments.
 
-subcatch_totno='8'
+subcatch_totno='26'
 echo 'total number of subcatchments being analysed is ' $subcatch_totno
 max_subcatch_no=$subcatch_totno
 
-subcatch_no='4'
+subcatch_no='7'
 echo 'initialised subcatchment number is set to' $subcatch_no
 max_subcatch_no=$subcatch_no # Just for debugging one subcatchment at a time
 
@@ -63,8 +63,8 @@ d.mon stop=wx1
 d.mon start=wx1
 
 #while [ $subcatch_no -le $subcatch_totno ]
-while [ $subcatch_no -le $max_subcatch_no ] # debugging one catchmnt
-do
+#while [ $subcatch_no -le $max_subcatch_no ] # debugging one catchmnt
+#do
 
 echo "****************************************"
 echo $subcatch_no
@@ -74,7 +74,7 @@ d.erase
 r.mask -r
 
 # Set region to cover all study catchments
-g.region rast=$topmod_allcatch res=50
+g.region -a rast=$topmod_allcatch res=50
 
 
 # Set MASK to correct subcatchment; topmodel will now be run only in the area

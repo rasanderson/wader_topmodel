@@ -62,3 +62,5 @@ r.stats -cn subwatersheds
 d.vect tmp_tweed_streams color=green width=2
 d.vect nrfa_stations icon=basic/circle fill_color=red size=5
 #d.vect stream_outlets icon=basic/circle color=red size=5 layer=2
+g.copy rast=subwatersheds,tweed_subcatchments --overwrite
+g.copy vect=subwatersheds,tweed_subcatchments --overwrite

@@ -6,7 +6,7 @@
 
 # set computational region
 g.region -p -a zoom=tweed_ihu_50m res=50
-r.mask raster=tweed_ihu_50m
+r.mask raster=tweed_ihu_50m --overwrite
 
 # https://idea.isnew.info/how-to-delineate-stream-networks-in-grass-gis.html
 # Delineating watersheds and identifying stream networks from the same source
@@ -48,6 +48,10 @@ cats=`db.select -c sql="select stream_points_2.cat from stream_points_2 \
     where length-along > 0.5*$nsres and length-along < 1.5*$nsres"`
 cats=`echo $cats | tr " " ,`
 v.extract input=stream_points layer=2 cats=$cats output=stream_outlets --overwrite
+
+# Update stream outlets to contain x and y coords in layer 2
+v.db.addcolumn map=stream_outlets columns="x double precision, y double precision" layer=2
+v.to.db map=stream_outlets opt=coor columns="x,y" layer=2 --overwrite
 
 # calculate longest flow paths and delineate subwatersheds for all outlets
 r.accumulate direction=tmp_drain_directions lfp=lfp id_column=id \

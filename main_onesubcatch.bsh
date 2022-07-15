@@ -21,7 +21,8 @@ latitude='55'
 echo 'latitude is set to' $latitude
 
 ## Input file mean daily temperature.  Each row a day, each column a catchment,
-## i.e. 15 cols in total for the Tyne dataset, 7 columns for Jim's Enigma dataset
+## i.e. 15 cols in total for the Tyne dataset 7 columns for Jim's Enigma dataset
+## This will need making more automatic for Tweed
 #mean_temp_csv_file='tyne_meantemp_allsubcatch30.csv'
 #echo 'temperature file used is' $mean_temp_csv_file
 #
@@ -47,7 +48,7 @@ topmod_allcatch='tweed_ihu_50m' # aligns better
 echo 'raster map containing all catchments is' $topmod_allcatch
 
 # Input raster map (sub)catchments.  Each (sub)catchment has a separate number
-topmod_subcatch='tweed_ihu_groups_50m'
+topmod_subcatch='tweed_subcatchments'
 echo 'raster map of subcatchment used is' $topmod_subcatch
 
 # Number of days to be modelled
@@ -55,7 +56,7 @@ echo 'raster map of subcatchment used is' $topmod_subcatch
 ntimesteps=`scripts/get_num_days.py 2010-01-01 2019-09-30`
 
 echo "If happy with input specification hit return to continue"
-read
+# read
 #### End of input variable specification ####
 #############################################
 
@@ -94,14 +95,19 @@ r.mask topmod_onecatch --quiet
 r.mapcalc expression=ihu_dem=ceh_ihdtm_50m --overwrite
 r.colors map=ihu_dem color=elevation
 
-# Coords just downstream of NRFA 12 (21007)
+# Coords just downstream of NRFA 21018 but we should
+# be able to use stream_outlets map to guide us before comparing
+# with NRFA
 # Use d.where | awk '{printf "%f\%f\point\n", $1, $2}' | v.in.ascii ...
 # if using a d.mon screen
-echo "348577.63|631535.35|point" | v.in.ascii input=- output=ihu_outlet columns='x double precision, y double precision, label varchar(20)' --overwrite
+#echo "348577.63|631535.35|point" | v.in.ascii input=- output=ihu_outlet columns='x double precision, y double precision, label varchar(20)' --overwrite
+# Outlet coordinates for this subcatchment
+outlet_coords=`v.db.select -c stream_outlets layer=2 where="lcat==$subcatch_no" separator=comma | cut -d"," -f4,5`
+echo $outlet_coords
 
 # Given problems with both stream network reliability from CEH and DEM, try
 # filling and recreating.
-g.region -a res=50
+#g.region -a res=50
 r.resamp.interp input=ihu_dem output=ihu_dem2 --overwrite
 r.fill.dir input=ihu_dem output=ihu_demfill direction=ihu_demdir areas=ihu_dem_problems --overwrite
 # If subcatch includes the River Tweed at its lower reaches, it is classed
@@ -125,6 +131,10 @@ r.stats -gn output_stream_dem > output_flow.txt
 # Assume output E and N coords are at minimum DEM of this stream
 E_outflow=`cat output_flow.txt | xargs -n3 | sort -nrk3,3 | tail -1 | awk '{print $1}'`
 N_outflow=`cat output_flow.txt | xargs -n3 | sort -nrk3,3 | tail -1 | awk '{print $2}'`
+echo $E_outflow
+echo $N_outflow
+echo $outlet_coords
+
 
 echo 'easting and northing coordinates for outflow are respectively' $E_outflow, $N_outflow
 r.accumulate direction=ihu_fdir subwatershed=ihu_watershed accumulation=facc longest_flow_path=ihu_lfp coordinates=$E_outflow,$N_outflow --overwrite

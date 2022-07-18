@@ -177,7 +177,7 @@ d.erase
 d.rast ihu_subwatersheds
 d.vect ihu_lfp color=blue width=3
 d.vect ihu_suboutlets fill_color=red icon=basic/circle size=10
-d.vect ihu_streams
+d.vect ihu_strahler
 
 # Note that this subcatchment is really unevenly split (just like the online
 # tutorial) and so should be modelled as a multi-subwatershed model with two
@@ -186,6 +186,7 @@ d.vect ihu_streams
 
 
 # Creating the last set of the parameters input file
+# Calculate the length of the LFP
 v.db.addtable map=ihu_lfp
 v.to.db map=ihu_lfp option=length units=meters columns=length_m
 v.db.select map=ihu_lfp
@@ -193,14 +194,13 @@ v.db.select map=ihu_lfp
 lfp_length=`v.db.select -c map=ihu_lfp format=vertical | sed -n '2p'`
 echo $lfp_length
 
-# The longest flow length is roughly 54,000 m. For each of 10 variable
-# contributing areas, a distance of 54,000 m is accumulated.
+# Add column with distance of each ihu_suboutlet from main ihu_outlet
 v.db.addtable map=ihu_suboutlets
 v.db.addcolumn map=ihu_suboutlets columns="distance_m real"
 v.db.update map=ihu_suboutlets column=distance_m query_column="cat*$lfp_length/10"
 
-# The cumulative area ratios of 10 subwatersheds can be obtained from the flow
-# accumulation raster.
+# The cumulative area ratios of the subwatersheds can be obtained from the flow
+# accumulation raster. Add facc values to ihu_suboutlets and ihu_outlet
 v.what.rast map=ihu_suboutlets raster=facc column=facc
 v.what.rast map=ihu_outlet raster=facc column=facc
 v.db.select map=ihu_outlet
@@ -208,7 +208,7 @@ v.db.select map=ihu_outlet
 watershed_cells=`v.db.select -c map=ihu_outlet format=vertical | sed -n '5p'`
 echo $watershed_cells
 
-# The total number of cells within the watershed is 202684, stored in the
+# The total number of cells within the watershed is stored in the
 # watershed_cells script variable. Divide the facc column in the suboutlets
 # vector by this number to obtain the cumulative area ratios.
 v.db.addcolumn map=ihu_suboutlets columns="area_ratio real"

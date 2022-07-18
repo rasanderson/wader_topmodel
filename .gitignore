@@ -4,4 +4,8 @@ output_flow.txt
 topmod_params.txt
 topidxstats.txt
 input_evap.txt
+ihu_rainfall.txt
 data/sim/*
+obs_for_R.txt
+topmod_output.txt
+topmod_output_for_R.txt

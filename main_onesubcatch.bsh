@@ -1,18 +1,18 @@
 #!/bin/bash
 
 # This adapts the approach used in Tyne catchment for Tweed
-g.region -a zoom=tweed_ihu_groups_50m res=50
+g.region -a zoom=tweed_ihu_50m res=50
 
 #######################################
-# Note that Tweed has 8 IHU groups. These are much bigger than
-# the ones we worked with for the Tyne, so we may have to 
-# sub-divide. Tyne had optimum at 20
+# Use create_subcatchments.bsh to define number of subcatchments
+# based on threshold value. This initial run uses threshold of
+# 50,000 which gives 26 subcatchments.
 
-subcatch_totno='8'
+subcatch_totno='26'
 echo 'total number of subcatchments being analysed is ' $subcatch_totno
 max_subcatch_no=$subcatch_totno
 
-subcatch_no='4'
+subcatch_no='7'
 echo 'initialised subcatchment number is set to' $subcatch_no
 max_subcatch_no=$subcatch_no # Just for debugging one subcatchment at a time
 
@@ -21,7 +21,8 @@ latitude='55'
 echo 'latitude is set to' $latitude
 
 ## Input file mean daily temperature.  Each row a day, each column a catchment,
-## i.e. 15 cols in total for the Tyne dataset, 7 columns for Jim's Enigma dataset
+## i.e. 15 cols in total for the Tyne dataset 7 columns for Jim's Enigma dataset
+## This will need making more automatic for Tweed
 #mean_temp_csv_file='tyne_meantemp_allsubcatch30.csv'
 #echo 'temperature file used is' $mean_temp_csv_file
 #
@@ -47,7 +48,7 @@ topmod_allcatch='tweed_ihu_50m' # aligns better
 echo 'raster map containing all catchments is' $topmod_allcatch
 
 # Input raster map (sub)catchments.  Each (sub)catchment has a separate number
-topmod_subcatch='tweed_ihu_groups_50m'
+topmod_subcatch='tweed_subcatchments'
 echo 'raster map of subcatchment used is' $topmod_subcatch
 
 # Number of days to be modelled
@@ -55,7 +56,7 @@ echo 'raster map of subcatchment used is' $topmod_subcatch
 ntimesteps=`scripts/get_num_days.py 2010-01-01 2019-09-30`
 
 echo "If happy with input specification hit return to continue"
-read
+# read
 #### End of input variable specification ####
 #############################################
 
@@ -63,8 +64,8 @@ d.mon stop=wx1
 d.mon start=wx1
 
 #while [ $subcatch_no -le $subcatch_totno ]
-while [ $subcatch_no -le $max_subcatch_no ] # debugging one catchmnt
-do
+#while [ $subcatch_no -le $max_subcatch_no ] # debugging one catchmnt
+#do
 
 echo "****************************************"
 echo $subcatch_no
@@ -74,7 +75,7 @@ d.erase
 r.mask -r
 
 # Set region to cover all study catchments
-g.region rast=$topmod_allcatch res=50
+g.region -a rast=$topmod_allcatch res=50
 
 
 # Set MASK to correct subcatchment; topmodel will now be run only in the area
@@ -94,14 +95,19 @@ r.mask topmod_onecatch --quiet
 r.mapcalc expression=ihu_dem=ceh_ihdtm_50m --overwrite
 r.colors map=ihu_dem color=elevation
 
-# Coords just downstream of NRFA 12 (21007)
+# Coords just downstream of NRFA 21018 but we should
+# be able to use stream_outlets map to guide us before comparing
+# with NRFA
 # Use d.where | awk '{printf "%f\%f\point\n", $1, $2}' | v.in.ascii ...
 # if using a d.mon screen
-echo "348577.63|631535.35|point" | v.in.ascii input=- output=ihu_outlet columns='x double precision, y double precision, label varchar(20)' --overwrite
+#echo "348577.63|631535.35|point" | v.in.ascii input=- output=ihu_outlet columns='x double precision, y double precision, label varchar(20)' --overwrite
+# Outlet coordinates for this subcatchment
+outlet_coords=`v.db.select -c stream_outlets layer=2 where="lcat==$subcatch_no" separator=comma | cut -d"," -f4,5`
+echo $outlet_coords
 
 # Given problems with both stream network reliability from CEH and DEM, try
 # filling and recreating.
-g.region -a res=50
+#g.region -a res=50
 r.resamp.interp input=ihu_dem output=ihu_dem2 --overwrite
 r.fill.dir input=ihu_dem output=ihu_demfill direction=ihu_demdir areas=ihu_dem_problems --overwrite
 # If subcatch includes the River Tweed at its lower reaches, it is classed
@@ -125,6 +131,10 @@ r.stats -gn output_stream_dem > output_flow.txt
 # Assume output E and N coords are at minimum DEM of this stream
 E_outflow=`cat output_flow.txt | xargs -n3 | sort -nrk3,3 | tail -1 | awk '{print $1}'`
 N_outflow=`cat output_flow.txt | xargs -n3 | sort -nrk3,3 | tail -1 | awk '{print $2}'`
+echo $E_outflow
+echo $N_outflow
+echo $outlet_coords
+
 
 echo 'easting and northing coordinates for outflow are respectively' $E_outflow, $N_outflow
 r.accumulate direction=ihu_fdir subwatershed=ihu_watershed accumulation=facc longest_flow_path=ihu_lfp coordinates=$E_outflow,$N_outflow --overwrite
@@ -167,7 +177,7 @@ d.erase
 d.rast ihu_subwatersheds
 d.vect ihu_lfp color=blue width=3
 d.vect ihu_suboutlets fill_color=red icon=basic/circle size=10
-d.vect ihu_streams
+d.vect ihu_strahler
 
 # Note that this subcatchment is really unevenly split (just like the online
 # tutorial) and so should be modelled as a multi-subwatershed model with two
@@ -176,6 +186,7 @@ d.vect ihu_streams
 
 
 # Creating the last set of the parameters input file
+# Calculate the length of the LFP
 v.db.addtable map=ihu_lfp
 v.to.db map=ihu_lfp option=length units=meters columns=length_m
 v.db.select map=ihu_lfp
@@ -183,14 +194,13 @@ v.db.select map=ihu_lfp
 lfp_length=`v.db.select -c map=ihu_lfp format=vertical | sed -n '2p'`
 echo $lfp_length
 
-# The longest flow length is roughly 54,000 m. For each of 10 variable
-# contributing areas, a distance of 54,000 m is accumulated.
+# Add column with distance of each ihu_suboutlet from main ihu_outlet
 v.db.addtable map=ihu_suboutlets
 v.db.addcolumn map=ihu_suboutlets columns="distance_m real"
 v.db.update map=ihu_suboutlets column=distance_m query_column="cat*$lfp_length/10"
 
-# The cumulative area ratios of 10 subwatersheds can be obtained from the flow
-# accumulation raster.
+# The cumulative area ratios of the subwatersheds can be obtained from the flow
+# accumulation raster. Add facc values to ihu_suboutlets and ihu_outlet
 v.what.rast map=ihu_suboutlets raster=facc column=facc
 v.what.rast map=ihu_outlet raster=facc column=facc
 v.db.select map=ihu_outlet
@@ -198,7 +208,7 @@ v.db.select map=ihu_outlet
 watershed_cells=`v.db.select -c map=ihu_outlet format=vertical | sed -n '5p'`
 echo $watershed_cells
 
-# The total number of cells within the watershed is 202684, stored in the
+# The total number of cells within the watershed is stored in the
 # watershed_cells script variable. Divide the facc column in the suboutlets
 # vector by this number to obtain the cumulative area ratios.
 v.db.addcolumn map=ihu_suboutlets columns="area_ratio real"
@@ -226,7 +236,7 @@ echo "$lfp_length       1.0" >> topmod_params.txt
 # from a topidx raster created by r.topidx. The following command calculates
 # statistics about topographic indices in the topidx raster by splitting the
 # entire range into 30 classes:
-r.topmodel -p topidx=ihu_topidx ntopidxclasses=30 outtopidxstats=topidxstats.txt
+r.topmodel -p topidx=ihu_topidx ntopidxclasses=30 outtopidxstats=topidxstats.txt --overwrite
 
 # Each line starts with the upper limit of a topographic index range whose
 # ratio is recorded in the next line in the second column with its lower
@@ -248,6 +258,7 @@ t.rast.mapcalc inputs=wader_rainfall_daily@PERMANENT output=tmp_ihu_rainfall bas
 t.rast.univar -u tmp_ihu_rainfall | cut -d'|' -f4 > ihu_rainfall.txt 
 t.remove -d -f tmp_ihu_rainfall
 r.mask -r
+r.mask raster=ihu_watershed
 # Convert rainfall to m / day
 awk '{printf("%.6f\n", ($1/1000))}' ihu_rainfall.txt > ihu_rainfall.txt2
 mv ihu_rainfall.txt2 ihu_rainfall.txt
@@ -273,7 +284,7 @@ g.region -a zoom=MASK res=50
 # See R script nrfa_download_flow.R for simple download of a station.
 # saved in obs.txt to match tutorial
 # Need to change to something easier later!
-nrfa_station_id=21007
+nrfa_station_id=21018
 Rscript nrfa_download_flow.R 21007 2010-01-01 2019-12-31 obs.txt
 echo "# From nrfa_download_flow.R for $nrfa_station_id ideal start_date=2010-01-01 end_date=2020-12-31" > tmp.txt
 echo "# Q [m^3/d]" >> tmp.txt
@@ -285,7 +296,7 @@ mv tmp.txt obs.txt
 # original online tutorial creates a file called input_evap.txt for
 # rainfall AND evapotranspiration. A bit confusing, so will rename
 # later!
-rain_evap_file="input_evap.txt"
+rain_evap_file="input_rain_evap.txt"
 echo "# Generated by from ihu_topmodel.bsh start_date=2010-01-01 end_date=2019-12-31" > $rain_evap_file
 echo "# dt [h]: Time step" >> $rain_evap_file
 echo "24" >> $rain_evap_file
@@ -327,7 +338,9 @@ paste -d " " ihu_rainfall.txt usgs_pet.txt >> $rain_evap_file
 ## topmodel_params.txt to data/params.txt
 
 # Run r.topmodel
-r.topmodel param=topmod_params.txt topidxstats=topidxstats.txt input=topmod_R_Ep.txt output=topmod_output.txt --overwrite
+r.topmodel param=topmod_params.txt topidxstats=topidxstats.txt input=$rain_evap_file output=topmod_output.txt --overwrite
+tail -n +66 topmod_output.txt > topmod_output_for_R.txt
+tail -n +3  obs.txt           > obs_for_R.txt
 
 ## Original approach used in Tyne but probably not relevant for Tweed
 ## Post-process results to make them easier to read into R

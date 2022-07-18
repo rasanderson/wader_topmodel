@@ -1,0 +1,11 @@
+# Ideas for potential evapotranspiration from Steve
+waren_hyd.dat$E=PE_Oudin(as.POSIXlt(waren_hyd.dat$DatesR)$yday + 1, waren_hyd.dat$T, Lat=55, LatUnit = "deg",
+         TimeStepIn = "daily", TimeStepOut = "daily",
+         RunFortran = FALSE)
+
+library(airGR)
+library(zoo)
+library(hydromad)
+
+## deprectated function
+PEdaily_Oudin(JD, Temp, LatRad, Lat, LatUnit)

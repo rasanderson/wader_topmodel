@@ -258,6 +258,7 @@ t.rast.mapcalc inputs=wader_rainfall_daily@PERMANENT output=tmp_ihu_rainfall bas
 t.rast.univar -u tmp_ihu_rainfall | cut -d'|' -f4 > ihu_rainfall.txt 
 t.remove -d -f tmp_ihu_rainfall
 r.mask -r
+r.mask raster=ihu_watershed
 # Convert rainfall to m / day
 awk '{printf("%.6f\n", ($1/1000))}' ihu_rainfall.txt > ihu_rainfall.txt2
 mv ihu_rainfall.txt2 ihu_rainfall.txt

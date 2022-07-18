@@ -236,7 +236,7 @@ echo "$lfp_length       1.0" >> topmod_params.txt
 # from a topidx raster created by r.topidx. The following command calculates
 # statistics about topographic indices in the topidx raster by splitting the
 # entire range into 30 classes:
-r.topmodel -p topidx=ihu_topidx ntopidxclasses=30 outtopidxstats=topidxstats.txt
+r.topmodel -p topidx=ihu_topidx ntopidxclasses=30 outtopidxstats=topidxstats.txt --overwrite
 
 # Each line starts with the upper limit of a topographic index range whose
 # ratio is recorded in the next line in the second column with its lower

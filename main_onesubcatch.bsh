@@ -310,37 +310,70 @@ paste -d " " input_rain.txt usgs_pet.txt >> $rain_evap_file
 
 
 
-## Calibration - skip for now
-## We just use the evap file, not pet
-## As NRFA only goes to September 2019, use this as max date
-## get the number of days for calibration period
-##scripts/get_num_days.py 2010-01-01 2015-12-31
-## Returns 2191
-#head -9 input_evap.txt > input_c_evap.txt
-#tail +10 input_evap.txt | sed '2191q' >> input_c_evap.txt
-#head -2 obs.txt > obs_c.txt
-#tail +3 obs.txt | sed '2191q' >> obs_c.txt
-## For validation skip to january 1st 2015
-##scripts/get_num_days.py 2010-01-01 2014-12-31
-## Returns 1826
-## Skip the first 1,826 records from input_evap.txt, input_pet.txt, and obs.txt.
-## BUT the NRFA data sometimes incomplete, so have to check that filesizes
-## match so need to check number of days to end of NRFA data
-##get_num_days.py 2015-01-01 2019-09-30
-## Returns 1734
-#head -9 input_evap.txt > input_v_evap.txt
-#tail +1836 input_evap.txt | sed '1734q' >> input_v_evap.txt
-#head -2 obs.txt > obs_v.txt
-#tail +1829 obs.txt | sed '1734q' >> obs_v.txt
-#
-#
-## Before running the calibration script in the data folder copy the
-## topmodel_params.txt to data/params.txt
+# 6. CALIBRATION SETUP
+# For single catchment
+# As NRFA only goes to September 2019, use this as max date
+# get the number of days for calibration period
+#scripts/get_num_days.py 2010-01-01 2015-12-31
+# Returns 2191
+head -9 input_rain_evap.txt > input_c_rain_evap.txt
+tail +10 input_rain_evap.txt | sed '2191q' >> input_c_rain_evap.txt
+head -2 obs.txt > obs_c.txt
+tail +3 obs.txt | sed '2191q' >> obs_c.txt
+# For validation skip to january 1st 2015
+#scripts/get_num_days.py 2010-01-01 2014-12-31
+# Returns 1826
+# Skip the first 1,826 records from input_rain_evap.txt, usgs_pet.txt, and obs.txt.
+# BUT the NRFA data sometimes incomplete, so have to check that filesizes
+# match so need to check number of days to end of NRFA data
+#get_num_days.py 2015-01-01 2019-09-30
+# Returns 1734
+head -9 input_rain_evap.txt > input_v_rain_evap.txt
+tail +1836 input_rain_evap.txt | sed '1734q' >> input_v_rain_evap.txt
+head -2 obs.txt > obs_v.txt
+tail +1829 obs.txt | sed '1734q' >> obs_v.txt
 
-# Run r.topmodel
-r.topmodel param=topmod_params.txt topidxstats=topidxstats.txt input=$rain_evap_file output=topmod_output.txt --overwrite
-tail -n +66 topmod_output.txt > topmod_output_for_R.txt
-tail -n +3  obs.txt           > obs_for_R.txt
+# Before running the calibration script in the data folder copy the
+# topmodel_params.txt to data/params.txt
+cp topmod_params.txt data/params.txt
+
+
+# 7. CALIBRATION
+# At this point manually edit scripts/config.R with the right information. Its
+# key variables are (taken from the tutorial):
+#   nruns determines how many times to run r.topmodel for calibration.
+#   skip_c and skip_v are the numbers of time steps for warming up for calibration and
+#                     validation, respectively.
+#   path_c and path_v define paths to input and output files for calibration and
+#                     validation, respectively.
+#   sim additionally defines a directory where simulation files for calibration will be saved
+#   obs defines the location of an observed streamflow file.
+#   calc_nse is the Nash-Sutclieffe efficiency (NSE) function.
+#   calc_obj is the objective function for minimization. Since this objective function returns
+#                     1 minus the NSE, its potential minimum value is 0, which means a
+#                     perfect model.
+
+# Delete results of previous calibration
+rm data/sim/*
+# I think the various input files need to be in the data folder
+cp topidxstats.txt data/topidxstats.txt
+cp input_c_rain_evap.txt data/input_c_rain_evap.txt
+cp obs_c.txt data/obs_c.txt
+cp input_v_rain_evap.txt data/input_v_rain_evap.txt
+cp obs_v.txt data/obs_v.txt
+# This is a bit awkward, but seem to have to run calibrate.R from data folder
+# Check manually first
+#cd data
+#Rscript scripts/calibrate.R
+# Then run the inspect_c_v_results.R script to assess model
+
+
+
+
+## Run r.topmodel for a Tweed subcatchment
+#r.topmodel param=topmod_params.txt topidxstats=topidxstats.txt input=$rain_evap_file output=topmod_output.txt --overwrite
+#tail -n +66 topmod_output.txt > topmod_output_for_R.txt
+#tail -n +3  obs.txt           > obs_for_R.txt
 
 ## Original approach used in Tyne but probably not relevant for Tweed
 ## Post-process results to make them easier to read into R

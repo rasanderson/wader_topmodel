@@ -11,3 +11,12 @@ obs_for_R.txt
 topmod_output.txt
 topmod_output_for_R.txt
 input_rain.txt
+*obs_c.txt
+*obs_v.txt
+input_c_rain_evap.txt
+input_v_rain_evap.txt
+input_v_evap.txt
+data/params.txt
+data/output_c.txt
+data/output_v.txt
+data/sim_v.txt

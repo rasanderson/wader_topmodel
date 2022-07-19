@@ -92,7 +92,7 @@ r.mask topmod_onecatch --quiet
 # Encountered problems creating reliable stream network from original DEM
 # For Campy work used r.fill.dem first, just on the IHU (subcatchment for
 # Campy. Try the same here.
-r.mapcalc expression=ihu_dem=ceh_ihdtm_50m --overwrite
+r.mapcalc expression=ihu_dem=ceh_ihdtm_hght_50m --overwrite
 r.colors map=ihu_dem color=elevation
 
 # Coords just downstream of NRFA 21018 but we should
@@ -261,7 +261,7 @@ r.mask -r
 r.mask raster=ihu_watershed
 # Convert rainfall to m / day
 awk '{printf("%.6f\n", ($1/1000))}' ihu_rainfall.txt > ihu_rainfall.txt2
-mv ihu_rainfall.txt2 ihu_rainfall.txt
+mv ihu_rainfall.txt2 input_rain.txt
 g.region -a zoom=MASK res=50
 
 # For PET use the USGS for now, but this is at 1-minute resolution. Might
@@ -285,7 +285,7 @@ g.region -a zoom=MASK res=50
 # saved in obs.txt to match tutorial
 # Need to change to something easier later!
 nrfa_station_id=21018
-Rscript nrfa_download_flow.R 21007 2010-01-01 2019-12-31 obs.txt
+Rscript nrfa_download_flow.R $nrfa_station_id 2010-01-01 2019-12-31 obs.txt
 echo "# From nrfa_download_flow.R for $nrfa_station_id ideal start_date=2010-01-01 end_date=2020-12-31" > tmp.txt
 echo "# Q [m^3/d]" >> tmp.txt
 cat obs.txt >> tmp.txt
@@ -306,7 +306,7 @@ echo "# R [m/dt]:  Rainfall" >> $rain_evap_file
 echo "# Ep [m/dt]: Potential evapotranspiration" >> $rain_evap_file
 echo "" >> $rain_evap_file
 echo "# R Ep" >> $rain_evap_file
-paste -d " " ihu_rainfall.txt usgs_pet.txt >> $rain_evap_file
+paste -d " " input_rain.txt usgs_pet.txt >> $rain_evap_file
 
 
 

@@ -16,25 +16,6 @@ subcatch_no='7'
 echo 'initialised subcatchment number is set to' $subcatch_no
 max_subcatch_no=$subcatch_no # Just for debugging one subcatchment at a time
 
-# Latitude in degrees (needed for evapotranspiration calculation)
-latitude='55'
-echo 'latitude is set to' $latitude
-
-## Input file mean daily temperature.  Each row a day, each column a catchment,
-## i.e. 15 cols in total for the Tyne dataset 7 columns for Jim's Enigma dataset
-## This will need making more automatic for Tweed
-#mean_temp_csv_file='tyne_meantemp_allsubcatch30.csv'
-#echo 'temperature file used is' $mean_temp_csv_file
-#
-## Input file mean daily rainfall.  Each row a day, each column a catchment,
-## i.e. 15 cols in total for the Tyne dataset, 7 columns for Jim's Enigma dataset
-#mean_rain_csv_file='tyne_cleanrain_allsubcatch30.csv'
-#echo 'rainfaill file used is ' $mean_rain_csv_file
-#
-## Input file with rules for splitting up longest flow path into 10% sections
-#segment_rules='segment_rules.txt'
-#echo 'segment rules file for splitting flow into sections is' $segment_rules
-
 # Input template of topmod_parameters
 topmod_params_init='topmod_params_init.txt'
 echo 'topmodel paramenters file used is' $topmod_params_init
@@ -51,9 +32,14 @@ echo 'raster map containing all catchments is' $topmod_allcatch
 topmod_subcatch='tweed_subcatchments'
 echo 'raster map of subcatchment used is' $topmod_subcatch
 
+# Start and end dates
+start_date="2010-01-01"
+end_date="2017-12-31"
+
 # Number of days to be modelled
-# If using NRFA data it stops in September 2019 for latest upload
-ntimesteps=`scripts/get_num_days.py 2010-01-01 2019-09-30`
+# If using NRFA data it stops in 30 September 2019 for latest upload
+# If using CEH EIDC PET data the available version is to 2017
+ntimesteps=`scripts/get_num_days.py $start_date $end_date`
 
 echo "If happy with input specification hit return to continue"
 # read
@@ -95,16 +81,6 @@ r.mask topmod_onecatch --quiet
 r.mapcalc expression=ihu_dem=ceh_ihdtm_hght_50m --overwrite
 r.colors map=ihu_dem color=elevation
 
-# Coords just downstream of NRFA 21018 but we should
-# be able to use stream_outlets map to guide us before comparing
-# with NRFA
-# Use d.where | awk '{printf "%f\%f\point\n", $1, $2}' | v.in.ascii ...
-# if using a d.mon screen
-#echo "348577.63|631535.35|point" | v.in.ascii input=- output=ihu_outlet columns='x double precision, y double precision, label varchar(20)' --overwrite
-# Outlet coordinates for this subcatchment
-outlet_coords=`v.db.select -c stream_outlets layer=2 where="lcat==$subcatch_no" separator=comma | cut -d"," -f4,5`
-echo $outlet_coords
-
 # Given problems with both stream network reliability from CEH and DEM, try
 # filling and recreating.
 #g.region -a res=50
@@ -131,10 +107,6 @@ r.stats -gn output_stream_dem > output_flow.txt
 # Assume output E and N coords are at minimum DEM of this stream
 E_outflow=`cat output_flow.txt | xargs -n3 | sort -nrk3,3 | tail -1 | awk '{print $1}'`
 N_outflow=`cat output_flow.txt | xargs -n3 | sort -nrk3,3 | tail -1 | awk '{print $2}'`
-echo $E_outflow
-echo $N_outflow
-echo $outlet_coords
-
 
 echo 'easting and northing coordinates for outflow are respectively' $E_outflow, $N_outflow
 r.accumulate direction=ihu_fdir subwatershed=ihu_watershed accumulation=facc longest_flow_path=ihu_lfp coordinates=$E_outflow,$N_outflow --overwrite
@@ -178,12 +150,6 @@ d.rast ihu_subwatersheds
 d.vect ihu_lfp color=blue width=3
 d.vect ihu_suboutlets fill_color=red icon=basic/circle size=10
 d.vect ihu_strahler
-
-# Note that this subcatchment is really unevenly split (just like the online
-# tutorial) and so should be modelled as a multi-subwatershed model with two
-# separate r.topmodel models. However stick with one model for now, as with
-# the tutorial.
-
 
 # Creating the last set of the parameters input file
 # Calculate the length of the LFP
@@ -231,6 +197,7 @@ echo "0.0       0.0" >> topmod_params.txt
 v.db.select -c ihu_suboutlets columns=distance_m,area_ratio separator=tab >> topmod_params.txt
 echo "$lfp_length       1.0" >> topmod_params.txt
 
+
 # 4.TOPMODEL topidxstats
 # r.topmodel provides a preprocessing flag -p to generate a topidxstats file
 # from a topidx raster created by r.topidx. The following command calculates
@@ -247,37 +214,46 @@ r.topmodel -p topidx=ihu_topidx ntopidxclasses=30 outtopidxstats=topidxstats.txt
 # Since the first line represents the maximum topographic index, its second
 # column must always be 0.
 
+
 # 5. WEATHER DATA
 # There are really too few weather NCDC stations in our area. Have created
 # spatio-temporal daily temperature and rainfall datasets from UKHAD at 1 km
 # from 2010 to 2019 (currently on bces-01 in uk_met mapset).
 # Need to get average rainfall for target subcatchment ihu_watershed
+# PET data available from USGS but too crude (single value for whole region).
+# Alternatives:
+#   CEH-EIDC 2010-2017 1km daily
+#   CEH-EIDC 2010-2020 1km daily. Temporarily withdrawn due to errors in
+#                                 PET calculations but submitted a request
+#                                 to get access on 28/07/2022
+#   Linear model. Derived from 5 km monthly temperature, wind and elevation
+#                                 from HAD-UK Met Office Data. Explains
+#                                 about 80% of variation.
+# Will use CEH-EIDC 2010-2017 1km for now, although this slightly shortens
+# overall time series length.
+# In code below the awk statement converts rain and PET to m/day for Topmodel
+#
+# Rainfall
 r.mapcalc expression="MASK=ihu_watershed" --overwrite
 g.region -a zoom=MASK res=1000
 t.rast.mapcalc inputs=wader_rainfall_daily@PERMANENT output=tmp_ihu_rainfall basename=tmp_ihu_rainfall expression="tmp_ihu_rainfall=wader_rainfall_daily" nprocs=8 --overwrite
 t.rast.univar -u tmp_ihu_rainfall | cut -d'|' -f4 > ihu_rainfall.txt 
 t.remove -d -f tmp_ihu_rainfall
-r.mask -r
-r.mask raster=ihu_watershed
 # Convert rainfall to m / day
 awk '{printf("%.6f\n", ($1/1000))}' ihu_rainfall.txt > ihu_rainfall.txt2
 mv ihu_rainfall.txt2 input_rain.txt
+# PET
+t.rast.mapcalc inputs=wader_pet_daily@PERMANENT output=tmp_ihu_pet basename=tmp_ihu_pet expression="tmp_ihu_pet=wader_pet_daily" nprocs=8 --overwrite
+t.rast.univar -u tmp_ihu_pet | cut -d'|' -f4 > ihu_pet.txt 
+t.remove -d -f tmp_ihu_pet
+awk '{printf("%.6f\n", ($1/1000))}' ihu_pet.txt > ihu_pet.txt2
+mv ihu_pet.txt2 input_pet.txt
+
+r.mask -r
+r.mask raster=ihu_watershed
 g.region -a zoom=MASK res=50
 
-# For PET use the USGS for now, but this is at 1-minute resolution. Might
-# be possible to use EA PET data but this is England-only. Would need to
-# create simple model to get it over the border, but in practice the PET
-# is fairly uniform across the whole region on any given day so probably
-# ok with USGS PET
-# Run this in epsg4326 location; just run once
-# Centroid of whole Wader region in epsg4326 location; next only needs running
-# once for whole Wader region as assume roughly the same in each subcatchment
-# -2.4630233218518516,55.558426188481484
-#for i in $(g.list type=raster pattern=et*); do
-#    r.what map=$i coordinates=-2.4630233218518516,55.558426188481484 | sed 's/.*|/0.00001*/' | bc
-#done > usgs_pet.txt
 
-# Back in OS projection
 # Best NRFA station is measuring Ettrick Water at Lindean id 21007
 # Note: this actually runs to 30th Sept 2019 via rnrfa. NRFA website
 # gives to current date, but on download also ends 30th Sept.
@@ -285,7 +261,7 @@ g.region -a zoom=MASK res=50
 # saved in obs.txt to match tutorial
 # Need to change to something easier later!
 nrfa_station_id=21018
-Rscript nrfa_download_flow.R $nrfa_station_id 2010-01-01 2019-12-31 obs.txt
+Rscript nrfa_download_flow.R $nrfa_station_id $start_date $end_date obs.txt
 echo "# From nrfa_download_flow.R for $nrfa_station_id ideal start_date=2010-01-01 end_date=2020-12-31" > tmp.txt
 echo "# Q [m^3/d]" >> tmp.txt
 cat obs.txt >> tmp.txt
@@ -297,7 +273,7 @@ mv tmp.txt obs.txt
 # rainfall AND evapotranspiration. A bit confusing, so will rename
 # later!
 rain_evap_file="input_rain_evap.txt"
-echo "# Generated by from ihu_topmodel.bsh start_date=2010-01-01 end_date=2019-12-31" > $rain_evap_file
+echo "# Generated by from ihu_topmodel.bsh start_date=$start_date end_date=$end_date" > $rain_evap_file
 echo "# dt [h]: Time step" >> $rain_evap_file
 echo "24" >> $rain_evap_file
 echo "" >> $rain_evap_file

@@ -5,12 +5,15 @@ topmod_params.txt
 topidxstats.txt
 input_evap.txt
 ihu_rainfall.txt
+ihu_pet.txt
 data/sim/*
 obs.txt
 obs_for_R.txt
 topmod_output.txt
 topmod_output_for_R.txt
 input_rain.txt
+input_pet.txt
+input_rain_evap.txt
 *obs_c.txt
 *obs_v.txt
 input_c_rain_evap.txt

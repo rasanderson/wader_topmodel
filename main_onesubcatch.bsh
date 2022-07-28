@@ -38,6 +38,12 @@ end_date="2017-12-31"
 start_date_trast=\"$start_date\"
 end_date_trast=\"$end_date\"
 
+# Calibration (if NRFA station available)
+# e.g. NRFA station for subcatchment 26 Ettrick Water at Lindean id 21007
+# Note: this actually runs to 30th Sept 2019 via rnrfa. NRFA website
+# gives to current date, but on download also ends 30th Sept.
+nrfa_station_id=21018
+
 # Number of days to be modelled
 # If using NRFA data it stops in 30 September 2019 for latest upload
 # If using CEH EIDC PET data the available version is to 2017
@@ -238,14 +244,14 @@ r.topmodel -p topidx=ihu_topidx ntopidxclasses=30 outtopidxstats=topidxstats.txt
 # Rainfall
 r.mapcalc expression="MASK=ihu_watershed" --overwrite
 g.region -a zoom=MASK res=1000
-t.rast.algebra basename=tmp_ihu_rainfall expression="tmp_ihu_rainfall=if(end_date(wader_rainfall_daily@PERMANENT) < $end_date_trast, wader_rainfall_daily@PERMANENT)" nprocs=8 --overwrite
+t.rast.algebra basename=tmp_ihu_rainfall expression="tmp_ihu_rainfall=if(start_date(wader_rainfall_daily@PERMANENT) <= $end_date_trast, wader_rainfall_daily@PERMANENT)" nprocs=8 --overwrite
 t.rast.univar -u tmp_ihu_rainfall | cut -d'|' -f4 > ihu_rainfall.txt 
 t.remove -d -f tmp_ihu_rainfall
 # Convert rainfall to m / day
 awk '{printf("%.6f\n", ($1/1000))}' ihu_rainfall.txt > ihu_rainfall.txt2
 mv ihu_rainfall.txt2 input_rain.txt
 # PET
-t.rast.algebra basename=tmp_ihu_pet expression="tmp_ihu_pet=if(end_date(wader_pet_daily@PERMANENT) < $end_date_trast, wader_pet_daily@PERMANENT)" nprocs=8 --overwrite
+t.rast.algebra basename=tmp_ihu_pet expression="tmp_ihu_pet=if(start_date(wader_pet_daily@PERMANENT) <= $end_date_trast, wader_pet_daily@PERMANENT)" nprocs=8 --overwrite
 t.rast.univar -u tmp_ihu_pet | cut -d'|' -f4 > ihu_pet.txt 
 t.remove -d -f tmp_ihu_pet
 awk '{printf("%.6f\n", ($1/1000))}' ihu_pet.txt > ihu_pet.txt2
@@ -255,16 +261,11 @@ r.mask -r
 r.mask raster=ihu_watershed
 g.region -a zoom=MASK res=50
 
-
-# Best NRFA station is measuring Ettrick Water at Lindean id 21007
-# Note: this actually runs to 30th Sept 2019 via rnrfa. NRFA website
-# gives to current date, but on download also ends 30th Sept.
 # See R script nrfa_download_flow.R for simple download of a station.
 # saved in obs.txt to match tutorial
 # Need to change to something easier later!
-nrfa_station_id=21018
 Rscript nrfa_download_flow.R $nrfa_station_id $start_date $end_date obs.txt
-echo "# From nrfa_download_flow.R for $nrfa_station_id ideal start_date=2010-01-01 end_date=2020-12-31" > tmp.txt
+echo "# From nrfa_download_flow.R for $nrfa_station_id start_date=$start_date end_date=$end_date" > tmp.txt
 echo "# Q [m^3/d]" >> tmp.txt
 cat obs.txt >> tmp.txt
 mv tmp.txt obs.txt

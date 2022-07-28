@@ -32,9 +32,11 @@ echo 'raster map containing all catchments is' $topmod_allcatch
 topmod_subcatch='tweed_subcatchments'
 echo 'raster map of subcatchment used is' $topmod_subcatch
 
-# Start and end dates
+# Start and end dates. t.rast.algebra needs literal quotes for dates.
 start_date="2010-01-01"
 end_date="2017-12-31"
+start_date_trast=\"$start_date\"
+end_date_trast=\"$end_date\"
 
 # Number of days to be modelled
 # If using NRFA data it stops in 30 September 2019 for latest upload
@@ -236,14 +238,14 @@ r.topmodel -p topidx=ihu_topidx ntopidxclasses=30 outtopidxstats=topidxstats.txt
 # Rainfall
 r.mapcalc expression="MASK=ihu_watershed" --overwrite
 g.region -a zoom=MASK res=1000
-t.rast.mapcalc inputs=wader_rainfall_daily@PERMANENT output=tmp_ihu_rainfall basename=tmp_ihu_rainfall expression="tmp_ihu_rainfall=wader_rainfall_daily" nprocs=8 --overwrite
+t.rast.algebra basename=tmp_ihu_rainfall expression="tmp_ihu_rainfall=if(end_date(wader_rainfall_daily@PERMANENT) < $end_date_trast, wader_rainfall_daily@PERMANENT)" nprocs=8 --overwrite
 t.rast.univar -u tmp_ihu_rainfall | cut -d'|' -f4 > ihu_rainfall.txt 
 t.remove -d -f tmp_ihu_rainfall
 # Convert rainfall to m / day
 awk '{printf("%.6f\n", ($1/1000))}' ihu_rainfall.txt > ihu_rainfall.txt2
 mv ihu_rainfall.txt2 input_rain.txt
 # PET
-t.rast.mapcalc inputs=wader_pet_daily@PERMANENT output=tmp_ihu_pet basename=tmp_ihu_pet expression="tmp_ihu_pet=wader_pet_daily" nprocs=8 --overwrite
+t.rast.algebra basename=tmp_ihu_pet expression="tmp_ihu_pet=if(end_date(wader_pet_daily@PERMANENT) < $end_date_trast, wader_pet_daily@PERMANENT)" nprocs=8 --overwrite
 t.rast.univar -u tmp_ihu_pet | cut -d'|' -f4 > ihu_pet.txt 
 t.remove -d -f tmp_ihu_pet
 awk '{printf("%.6f\n", ($1/1000))}' ihu_pet.txt > ihu_pet.txt2

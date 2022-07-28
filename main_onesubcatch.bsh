@@ -288,7 +288,10 @@ echo "" >> $rain_evap_file
 echo "# R Ep" >> $rain_evap_file
 paste -d " " input_rain.txt input_pet.txt >> $rain_evap_file
 
-
+# As t.rast.algebra take while to run, copy obs and rain/pet data to a
+# subcatch_dat folder for ease of access in future
+cp $rain_evap_file subcatch_dat/$rain_evap_file.$subcatch_no
+cp obs.txt subcatch_dat/obs.txt.$subcatch_no
 
 # 6. CALIBRATION SETUP
 # For single catchment

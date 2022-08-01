@@ -358,63 +358,10 @@ cp input_v_rain_evap.txt data/input_v_rain_evap.txt
 cp obs_v.txt data/obs_v.txt
 # This is a bit awkward, but seem to have to run calibrate.R from data folder
 # Check manually first
-#cd data
-#Rscript scripts/calibrate.R
-# Then run the inspect_c_v_results.R script to assess model
+cd data
+Rscript ../scripts/calibrate.R
+cd ..
+# Permanently store best calibration parameters
+cp data/params.txt subcatch_dat/params.txt.$subcatch_no
 
-
-# calibrate.R will populate the sim directory. Then find the best NSE
-# inside R session run:
-#source("config.R")
-#source("../scripts/run_rtopmodel.R")
-#source("../scripts/read_write_rtopmodel.R")
-#
-#obj <- read.table("sim/obj.txt")[[1]]
-#x <- read.table("sim/x.txt")
-#
-#best_idx <- which(obj==min(obj))
-#best_x <- as.numeric(x[best_idx,])
-#
-#obs_c <- read.table("obs_c.txt")[[1]]
-#sim_c <- run_rtopmodel_x(best_x, path_c)
-#write.table(sim_c, "sim_c.txt", row.names=FALSE, col.names=FALSE)
-#
-#calc_nse(obs_c, sim_c, skip_c)
-#
-## To compare observed and simulated calibration results
-#old.par <- par(mar=c(5.1, 4.5, 4.1, 2.1))
-#plot(obs_c[-(1:skip_c)], type="l", xlab="Time (days)", ylab=expression(Streamflow~(m^3/d)))
-#lines(sim_c[-(1:skip_c)], col="red")
-#legend("topleft", c("obs_c", "sim_c"), col=c("black", "red"), lty=c(1, 1), bty="n")
-#
-#plot(obs_c, sim_c)
-#abline(0, 1, col="red")
-
-## My NSE (Nash-Sutcliffe Efficiency) around 0.71 for subcatch_no 26
-## Tendency to overestimate baseflows on best model, maybe because NSE puts
-## more weight on peak flows, or artifact from Topmodel. (This is identical to
-## Topmodel FOSS4G tutorial results.)
-## To compare all 1000 models with observations following code in R will do for
-## now, but better to show mean (or median) with SE in ggplot2.
-#sim_c <- c()
-#for(i in 1:1000){
-#    file <- sprintf("sim/sim_c_%04d.txt", i)
-#    sim_c <- rbind(sim_c, read.table(file)[[1]])
-#}
-#
-#matplot(t(sim_c), type="l", col="green", lty=1)
-#lines(obs_c, col="red")
-#legend("topleft", legend=c("obs_c", "sim_c"), col=c("red", "green"), lty=1, bty="n")
-#
-## Validation NSE (about 5% lower as might be expected)
-#obs_v <- read.table("obs_v.txt")[[1]]
-#sim_v <- run_rtopmodel(path_v)
-#write.table(sim_v, "sim_v.txt", row.names=FALSE, col.names=FALSE)
-#
-#calc_nse(obs_v, sim_v, skip_v)
-#
-## Plot validation results
-#plot(obs_v[-(1:skip_v)], type="l", xlab="Time (days)", ylab=expression(Streamflow~(m^3/d)))
-#lines(sim_v[-(1:skip_v)], col="red")
-#legend("topleft", c("obs_v", "sim_v"), col=c("black", "red"), lty=c(1, 1), bty="n")
-
+# Then run the inspect_c_v_results.R interactively to assess model

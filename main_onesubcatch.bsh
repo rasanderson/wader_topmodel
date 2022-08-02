@@ -45,6 +45,7 @@ end_date_trast=\"$end_date\"
 nrfa_station_id=21018
 calibration_end_date="2015-12-31"
 validation_skip_date="2014-12-31" # One year earlier for burn-in
+validation_start_date="2015-01-01" # Basically 1 yr before calibration_end_date
 
 # Number of days to be modelled
 # If using NRFA data it stops in 30 September 2019 for latest upload
@@ -364,4 +365,9 @@ cd ..
 # Permanently store best calibration parameters
 cp data/params.txt subcatch_dat/params.txt.$subcatch_no
 
-# Then run the inspect_c_v_results.R interactively to assess model
+# Then run the inspect_c_v_results.R to run Topmodel on best calibration data
+# and plot results. By default the 1000 individual model runs are not plotted.
+cd data
+Rscript inspect_c_v_results.R $subcatch_no $start_date $calibration_end_date $validation_start_date $end_date
+cd ..
+mv data/Rplots.pdf subcatch_dat/calib_valid_plots.$subcatch_no.pdf

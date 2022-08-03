@@ -7,6 +7,7 @@ input_evap.txt
 ihu_rainfall.txt
 ihu_pet.txt
 data/sim/*
+data/sim_random/*
 obs.txt
 obs_for_R.txt
 topmod_output.txt

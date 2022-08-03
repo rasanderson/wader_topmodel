@@ -56,6 +56,9 @@ ntimesteps=`scripts/get_num_days.py $start_date $end_date`
 # so avoid where possible and use stored data.
 calc_rain_pet="NO"
 
+# Sensitivity analysis if very slow, as uses random uniform distribution
+sensitivity="YES"
+
 echo "If happy with input specification hit return to continue"
 # read
 #### End of input variable specification ####
@@ -380,3 +383,20 @@ cd data
 Rscript inspect_c_v_results.R $subcatch_no $start_date $calibration_end_date $validation_start_date $end_date
 cd ..
 mv data/Rplots.pdf subcatch_dat/calib_valid_plots.$subcatch_no.pdf
+
+
+# 8. SENSITIVITY ANALYSIS
+# Takes about 10 to 20 minutes per subcatchment. Although objective
+# function can be plotted against the 1000 simulations done using the
+# ISPSO optimisation earlier, in practice as this converges fast it
+# is difficult to spot which variables topmodel is most sensitive
+# to for our setup. So using random uniform distribution with
+# 10,000 random simulations, though slower, gives easier plots
+# to interpret.
+# 
+# Delete results of previous sensitivity analysis
+rm data/sim_random/*
+cd data
+../scripts/sample_random.R
+cd ..
+mv data/Rplots.pdf subcatch_dat/sensitivity_plots.$subcatch_no.pdf

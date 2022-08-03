@@ -52,6 +52,10 @@ validation_start_date="2015-01-01" # Basically 1 yr before calibration_end_date
 # If using CEH EIDC PET data the available version is to 2017
 ntimesteps=`scripts/get_num_days.py $start_date $end_date`
 
+# Calculate subcatchment-level rain and PET? This is very slow
+# so avoid where possible and use stored data.
+calc_rain_pet="NO"
+
 echo "If happy with input specification hit return to continue"
 # read
 #### End of input variable specification ####
@@ -244,6 +248,8 @@ r.topmodel -p topidx=ihu_topidx ntopidxclasses=30 outtopidxstats=topidxstats.txt
 # overall time series length.
 # In code below the awk statement converts rain and PET to m/day for Topmodel
 #
+if [ $calc_rain_pet == YES ]
+then
 # Rainfall
 r.mapcalc expression="MASK=ihu_watershed" --overwrite
 g.region -a zoom=MASK res=1000
@@ -259,7 +265,7 @@ t.rast.univar -u tmp_ihu_pet | cut -d'|' -f4 > ihu_pet.txt
 t.remove -d -f tmp_ihu_pet
 awk '{printf("%.6f\n", ($1/1000))}' ihu_pet.txt > ihu_pet.txt2
 mv ihu_pet.txt2 input_pet.txt
-
+fi
 r.mask -r
 r.mask raster=ihu_watershed
 g.region -a zoom=MASK res=50
@@ -289,10 +295,13 @@ echo "" >> $rain_evap_file
 echo "# R Ep" >> $rain_evap_file
 paste -d " " input_rain.txt input_pet.txt >> $rain_evap_file
 
+if [ $calc_rain_pet == YES ]
+then
 # As t.rast.algebra take while to run, copy obs and rain/pet data to a
 # subcatch_dat folder for ease of access in future
 cp $rain_evap_file subcatch_dat/$rain_evap_file.$subcatch_no
 cp obs.txt subcatch_dat/obs.txt.$subcatch_no
+fi
 
 # 6. CALIBRATION SETUP
 # For single catchment

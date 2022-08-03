@@ -1,17 +1,17 @@
-nruns <- 5000 # Number of times to run r.topmodel for calibration
+nruns <- 1000 # Number of times to run r.topmodel for calibration
 skip_c <- 365 # Warm-up steps for calibration (one year)
 skip_v <- 365 # Warm-up steps for validation (one year)
 path_c <- list(params="params.txt",
 	       topidxstats="topidxstats.txt",
 	       #input="input_c_pet.txt",
-	       input="input_c_evap.txt",
+	       input="input_c_rain_evap.txt",
 	       output="output_c.txt",
 	       sim="sim",
 	       obs="obs_c.txt")
 path_v <- list(params="params.txt",
 	       topidxstats="topidxstats.txt",
 	       #input="input_v_pet.txt",
-	       input="input_v_evap.txt",
+	       input="input_v_rain_evap.txt",
 	       output="output_v.txt",
 	       obs="obs_v.txt")
 

@@ -3,11 +3,9 @@
 # Go through each subcatchment, calculate rain and pet, and store for later use
 subcatch_totno='26'
 echo 'total number of subcatchments being analysed is ' $subcatch_totno
-max_subcatch_no=$subcatch_totno
 
-subcatch_no='7'
+subcatch_no='1'
 echo 'initialised subcatchment number is set to' $subcatch_no
-max_subcatch_no=$subcatch_no # Just for debugging one subcatchment at a time
 
 # Input raster map containing all (sub)catchments for study. 
 topmod_allcatch='tweed_ihu_50m' # aligns better
@@ -22,14 +20,24 @@ echo 'raster map of subcatchment used is' $topmod_subcatch
 # Remove MASK if present
 r.mask -r
 
-# Set region to cover all study catchments
-g.region -a rast=$topmod_allcatch res=50
-
 # Start and end dates. t.rast.algebra needs literal quotes for dates.
 start_date="2010-01-01"
 end_date="2017-12-31"
 start_date_trast=\"$start_date\"
 end_date_trast=\"$end_date\"
+
+d.mon sel=wx0
+d.rast $topmod_subcatch
+
+d.mon sel=wx1
+
+while [ $subcatch_no -le $subcatch_totno ]
+do
+echo "**********************************************************************"
+echo $subcatch_no
+
+# Set region to cover all study catchments
+g.region -a rast=$topmod_allcatch res=50
 
 
 # Set MASK to correct subcatchment
@@ -38,6 +46,7 @@ g.region -a zoom=topmod_onecatch res=1000
 r.mask topmod_onecatch --quiet
 g.region -a zoom=MASK res=1000
 
+d.rast topmod_onecatch
 
 # Currently using 2010-2017 1km daily, but CEH expects 2010-2020 soon.
 # Need to get average rainfall for target subcatchment ihu_watershed
@@ -82,3 +91,10 @@ paste -d " " input_rain.txt input_pet.txt >> $rain_evap_file
 # As t.rast.algebra take while to run, rain/pet data to a
 # subcatch_dat folder for ease of access in future
 cp $rain_evap_file subcatch_dat/$rain_evap_file.$subcatch_no
+
+r.mask -r
+
+subcatch_no=`expr $subcatch_no + 1`
+done
+
+

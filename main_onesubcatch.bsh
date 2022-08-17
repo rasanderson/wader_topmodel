@@ -12,8 +12,10 @@ subcatch_totno='26'
 echo 'total number of subcatchments being analysed is ' $subcatch_totno
 max_subcatch_no=$subcatch_totno
 
-subcatch_no='7'
-echo 'initialised subcatchment number is set to' $subcatch_no
+echo 'Enter subcatchment number to calibrate'
+read subcatch_no
+echo $subcatch_no
+
 max_subcatch_no=$subcatch_no # Just for debugging one subcatchment at a time
 
 # Input template of topmod_parameters
@@ -42,7 +44,9 @@ end_date_trast=\"$end_date\"
 # e.g. NRFA station for subcatchment 26 Ettrick Water at Lindean id 21007
 # Note: this actually runs to 30th Sept 2019 via rnrfa. NRFA website
 # gives to current date, but on download also ends 30th Sept.
-nrfa_station_id=21018
+echo "Enter the NRFA code for calibration"
+read nrfa_station_id
+echo $nrfa_station_id
 calibration_end_date="2015-12-31"
 validation_skip_date="2014-12-31" # One year earlier for burn-in
 validation_start_date="2015-01-01" # Basically 1 yr before calibration_end_date

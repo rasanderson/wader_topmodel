@@ -61,10 +61,10 @@ ntimesteps=`scripts/get_num_days.py $start_date $end_date`
 calc_rain_pet="NO"
 
 # Sensitivity analysis if very slow, as uses random uniform distribution
-sensitivity="YES"
+sensitivity="NO"
 
 echo "If happy with input specification hit return to continue"
-# read
+read response
 #### End of input variable specification ####
 #############################################
 
@@ -171,7 +171,6 @@ d.erase
 d.rast ihu_subwatersheds
 d.vect ihu_lfp color=blue width=3
 d.vect ihu_suboutlets fill_color=red icon=basic/circle size=10
-d.vect ihu_strahler
 
 # Creating the last set of the parameters input file
 # Calculate the length of the LFP
@@ -366,6 +365,7 @@ cp topmod_params.txt data/params.txt
 #                     perfect model.
 
 # Delete results of previous calibration
+echo "Doing calibration. Please wait..." 
 rm data/sim/*
 # I think the various input files need to be in the data folder
 cp topidxstats.txt data/topidxstats.txt
@@ -376,6 +376,7 @@ cp obs_v.txt data/obs_v.txt
 # This is a bit awkward, but seem to have to run calibrate.R from data folder
 # Check manually first
 cd data
+echo "Doing validation. Pleae wait..."
 Rscript ../scripts/calibrate.R
 cd ..
 # Permanently store best calibration parameters
@@ -399,8 +400,12 @@ mv data/Rplots.pdf subcatch_dat/calib_valid_plots.$subcatch_no.pdf
 # to interpret.
 # 
 # Delete results of previous sensitivity analysis
+if [ $sensitivity == "YES" ]
+then
+echo "Doing sensitivity analysis. Please wait..."
 rm data/sim_random/*
 cd data
 ../scripts/sample_random.R
 cd ..
 mv data/Rplots.pdf subcatch_dat/sensitivity_plots.$subcatch_no.pdf
+fi

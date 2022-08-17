@@ -4,52 +4,52 @@ Wader
 
 ################################################################################
 # A [m^2]: Total subcatchment area
-173132500.000000
+356442500.000000
 
 ################################################################################
 # qs0 [m/h]: Initial subsurface flow per unit area
 #		"The first streamflow input is assumed to represent
 #		 only the subsurface flow contribution in the watershed."
 #								- Liaw (1988)
-1.15031096671217e-05
+3.9612769437466e-05
 
 # lnTe [ln(m^2/h)]: Areal average of the soil surface transmissivity
--0.862856755504708
+-1.63213218494398
 
 # m [m]: Scaling parameter
-0.217083059557951
+0.0405693945907817
 
 # Sr0 [m]: Initial root zone storage deficit
-0.00115186929454707
+0.00496130521269704
 
 # Srmax [m]: Maximum root zone storage deficit
-0.0797861003211514
+0.0495802147584889
 
 # td [h]: Unsaturated zone time delay per unit storage deficit if greater than 0
 #  OR
 # -alpha: Effective vertical hydraulic gradient if not greater than 0.
 #
 # For example, -10 means alpha=10.
-21.9800559481294
+19.3095962747371
 
 # vch [m/h]: Main channel routing velocity
 1000
 
 # vr [m/h]: Internal subcatchment routing velocity
-292.104986889998
+454.118198688377
 
 ################################################################################
 # infex: Calculate infiltration excess if not zero (integer)
 1
 
 # K0 [m/h]: Surface hydraulic conductivity
-0.104170155193138
+0.0929600869799518
 
 # psi [m]: Wetting front suction
-0.108025047932424
+0.101687885926567
 
 # dtheta: Water content change across the wetting front
-0.38094925075187
+0.54509621273918
 
 ################################################################################
 # d [m]: Distance from the catchment outlet
@@ -60,13 +60,13 @@ Wader
 
 #   d  Ad_r
 0.0       0.0
-3019.629868	0.0992360900518419
-6039.259736	0.145330618492686
-9058.889604	0.467977876936851
-12078.519472	0.575329607647764
-15098.14934	0.697786249620933
-18117.779208	0.863016072434259
-21137.409076	0.884734797614406
-24157.038944	0.906641251137201
-27176.668812	0.976100737916793
-30196.29868       1.0
+4239.6655814	0.0430811322740188
+8479.3311628	0.110652776316251
+12718.9967442	0.469620119962117
+16958.6623256	0.50660493177593
+21198.327907	0.616521098600442
+25437.9934884	0.764628713739521
+29677.6590698	0.898446104738854
+33917.3246512	0.941667543582728
+38156.9902326	0.982742291907819
+42396.655814       1.0

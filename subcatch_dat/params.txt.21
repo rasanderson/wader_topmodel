@@ -4,52 +4,52 @@ Wader
 
 ################################################################################
 # A [m^2]: Total subcatchment area
-173132500.000000
+232885000.000000
 
 ################################################################################
 # qs0 [m/h]: Initial subsurface flow per unit area
 #		"The first streamflow input is assumed to represent
 #		 only the subsurface flow contribution in the watershed."
 #								- Liaw (1988)
-1.15031096671217e-05
+9.27359466663903e-05
 
 # lnTe [ln(m^2/h)]: Areal average of the soil surface transmissivity
--0.862856755504708
+-2.59200187248107
 
 # m [m]: Scaling parameter
-0.217083059557951
+0.0499233942977042
 
 # Sr0 [m]: Initial root zone storage deficit
-0.00115186929454707
+0.00862554645864033
 
 # Srmax [m]: Maximum root zone storage deficit
-0.0797861003211514
+0.0652959539499918
 
 # td [h]: Unsaturated zone time delay per unit storage deficit if greater than 0
 #  OR
 # -alpha: Effective vertical hydraulic gradient if not greater than 0.
 #
 # For example, -10 means alpha=10.
-21.9800559481294
+15.9106696592662
 
 # vch [m/h]: Main channel routing velocity
 1000
 
 # vr [m/h]: Internal subcatchment routing velocity
-292.104986889998
+479.451076866329
 
 ################################################################################
 # infex: Calculate infiltration excess if not zero (integer)
 1
 
 # K0 [m/h]: Surface hydraulic conductivity
-0.104170155193138
+0.18808848806587
 
 # psi [m]: Wetting front suction
-0.108025047932424
+0.0569321253249693
 
 # dtheta: Water content change across the wetting front
-0.38094925075187
+0.598415922017357
 
 ################################################################################
 # d [m]: Distance from the catchment outlet
@@ -60,13 +60,13 @@ Wader
 
 #   d  Ad_r
 0.0       0.0
-3019.629868	0.0992360900518419
-6039.259736	0.145330618492686
-9058.889604	0.467977876936851
-12078.519472	0.575329607647764
-15098.14934	0.697786249620933
-18117.779208	0.863016072434259
-21137.409076	0.884734797614406
-24157.038944	0.906641251137201
-27176.668812	0.976100737916793
-30196.29868       1.0
+4207.5945135	0.0404564092655804
+8415.189027	0.143556385650802
+12622.7835405	0.225081041626414
+16830.378054	0.292340224555076
+21037.9725675	0.397372319185934
+25245.567081	0.989233807775703
+29453.1615945	0.774307120929134
+33660.756108	0.910596595178292
+37868.3506215	0.977050728837938
+42075.945135       1.0

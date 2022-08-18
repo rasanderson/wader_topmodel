@@ -1,0 +1,416 @@
+#!/bin/bash
+
+# This adapts the approach used in Tyne catchment for Tweed
+# Script based on main_onesubcatch.bsh but for subcathments that
+# lack NRFA data therefore cannot be calibrated. Instead use
+# mean parameter values from those edge subcatchments that have
+# been calibrated.
+
+# Can only be used for 'edge' subcatchments, i.e. without inflows
+g.region -a zoom=tweed_ihu_50m res=50
+
+#######################################
+# Use create_subcatchments.bsh to define number of subcatchments
+# based on threshold value. This initial run uses threshold of
+# 50,000 which gives 26 subcatchments.
+
+subcatch_totno='26'
+echo 'total number of subcatchments being analysed is ' $subcatch_totno
+max_subcatch_no=$subcatch_totno
+
+echo 'Enter subcatchment number to model'
+read subcatch_no
+echo $subcatch_no
+
+max_subcatch_no=$subcatch_no # Just for debugging one subcatchment at a time
+
+# Input template of topmod_parameters
+topmod_params_init='topmod_params_mean_init.txt'
+echo 'topmodel paramenters file used is' $topmod_params_init
+
+# Input raster map containing DEM for whole study area
+topmod_demraw='tweed_ihdtm_50m'
+echo 'raster map of DEM used is' $topmod_demraw
+
+# Input raster map containing all (sub)catchments for study. 
+topmod_allcatch='tweed_ihu_50m' # aligns better
+echo 'raster map containing all catchments is' $topmod_allcatch
+
+# Input raster map (sub)catchments.  Each (sub)catchment has a separate number
+topmod_subcatch='tweed_subcatchments'
+echo 'raster map of subcatchment used is' $topmod_subcatch
+
+# Start and end dates. t.rast.algebra needs literal quotes for dates.
+start_date="2010-01-01"
+end_date="2017-12-31"
+start_date_trast=\"$start_date\"
+end_date_trast=\"$end_date\"
+
+# Calibration (if NRFA station available)
+# e.g. NRFA station for subcatchment 26 Ettrick Water at Lindean id 21007
+# Note: this actually runs to 30th Sept 2019 via rnrfa. NRFA website
+# gives to current date, but on download also ends 30th Sept.
+echo "This script for edge subcatchments without NRFA data with no feed-ins"
+calibration_end_date="2015-12-31"
+validation_skip_date="2014-12-31" # One year earlier for burn-in
+validation_start_date="2015-01-01" # Basically 1 yr before calibration_end_date
+
+# Number of days to be modelled
+ntimesteps=`scripts/get_num_days.py $start_date $end_date`
+
+# Calculate subcatchment-level rain and PET? This is very slow
+# so avoid where possible and use stored data.
+calc_rain_pet="NO"
+
+# Sensitivity analysis if very slow, as uses random uniform distribution
+sensitivity="NO"
+
+echo "If happy with input specification hit return to continue"
+read response
+#### End of input variable specification ####
+#############################################
+
+d.mon stop=wx1
+d.mon start=wx1
+
+echo "****************************************"
+echo $subcatch_no
+d.erase
+
+# Remove MASK if present
+r.mask -r
+
+# Set region to cover all study catchments
+g.region -a rast=$topmod_allcatch res=50
+
+
+# Set MASK to correct subcatchment; topmodel will now be run only in the area
+# of topmod_onecatch 
+g.remove -f type=raster name=topmod_onecatch
+r.mapcalc expression="topmod_onecatch=if($topmod_subcatch==$subcatch_no,1,null())" --overwrite
+g.region -a zoom=topmod_onecatch res=50
+# Need resolution to help clean longest flow path vector
+resolution=`g.region -p | grep nsres | awk '{print $2}'`
+d.mon sel=wx1
+r.mask topmod_onecatch --quiet
+
+
+# Encountered problems creating reliable stream network from original DEM
+# For Campy work used r.fill.dem first, just on the IHU (subcatchment for
+# Campy. Try the same here.
+r.mapcalc expression=ihu_dem=ceh_ihdtm_hght_50m --overwrite
+r.colors map=ihu_dem color=elevation
+
+# Given problems with both stream network reliability from CEH and DEM, try
+# filling and recreating.
+#g.region -a res=50
+r.resamp.interp input=ihu_dem output=ihu_dem2 --overwrite
+r.fill.dir input=ihu_dem output=ihu_demfill direction=ihu_demdir areas=ihu_dem_problems --overwrite
+# If subcatch includes the River Tweed at its lower reaches, it is classed
+# as -1000
+r.mapcalc expression="ihu_demfill=if(ihu_demfill==-1000,null(),ihu_demfill)" --overwrite
+r.colors ihu_demfill color=elevation
+
+# Now try and display streams
+r.stream.extract elevation=ihu_demfill stream_raster=ihu_watershed_streams direction=ihu_fdir threshold=1 --verbose --overwrite
+d.rast ihu_watershed_streams
+r.stream.order stream_rast=ihu_watershed_streams direction=ihu_fdir strahler=ihu_strahler --overwrite
+d.erase
+d.rast ihu_strahler
+
+output_stream=`r.stats -n ihu_strahler | tail -1`
+echo 'the highest stream number found is' $output_stream
+
+r.mapcalc expression="output_stream_dem=if(ihu_strahler==$output_stream, ihu_demfill,null())" --overwrite
+r.stats -gn output_stream_dem > output_flow.txt
+
+# Assume output E and N coords are at minimum DEM of this stream
+E_outflow=`cat output_flow.txt | xargs -n3 | sort -nrk3,3 | tail -1 | awk '{print $1}'`
+N_outflow=`cat output_flow.txt | xargs -n3 | sort -nrk3,3 | tail -1 | awk '{print $2}'`
+
+echo 'easting and northing coordinates for outflow are respectively' $E_outflow, $N_outflow
+r.accumulate direction=ihu_fdir subwatershed=ihu_watershed accumulation=facc longest_flow_path=ihu_lfp coordinates=$E_outflow,$N_outflow --overwrite
+d.vect tweed_rivers
+d.vect ihu_lfp color=blue width=5
+
+
+
+# 2. TOPMODEL TOPOGRAPHIC INDEX
+r.topidx input=ihu_demfill output=ihu_topidx --overwrite
+r.mapcalc expression="ihu_topidx_watershed=if(isnull(ihu_watershed),null(),ihu_topidx)" --overwrite
+d.rast ihu_topidx_watershed
+# NOTE: topidx_watershed is not calculated for reservoirs (flat areas)
+
+# For later when setting up the topmodel_param.txt file we need the distance
+# along each subwatershed. This needs the stream network to be 'burnt' into
+# the relevant dem as per the tutorial.
+r.mapcalc expression="ihu_dem_burned=if(isnull(ihu_watershed_streams),ihu_demfill,-9999)" --overwrite
+r.watershed elevation=ihu_dem_burned drainage=ihu_fdir --overwrite
+d.rast ihu_fdir
+
+# Given problems with outlet map earlier, create one based on stream
+# network outflow point
+echo "1|$E_outflow|$N_outflow|output" | v.in.ascii in=- x=2 y=3 cat=1 columns='cat int, x double precision, y double precision, label varchar(20)' out=ihu_outlet --overwrite
+
+# Now we can delineate the watershed and display the longest flow path
+# Note: r.accumulate may neet to be installed with g.extension
+r.accumulate direction=ihu_fdir outlet=ihu_outlet subwatershed=ihu_watershed accumulation=ihu_facc longest_flow_path=ihu_lfp --overwrite
+
+# Convert the watershed raster to vector.
+r.to.vect input=ihu_watershed type=area output=ihu_watershed --overwrite
+
+
+
+# 3. TOPMODEL PARAMETERS
+# suboutlets.txt created with divisions every 10% along lfp
+v.segment input=ihu_lfp rules=suboutlets.txt output=ihu_suboutlets --overwrite
+r.accumulate direction=ihu_fdir outlet=ihu_suboutlets subwatershed=ihu_subwatersheds --overwrite
+d.erase
+d.rast ihu_subwatersheds
+d.vect ihu_lfp color=blue width=3
+d.vect ihu_suboutlets fill_color=red icon=basic/circle size=10
+
+# Creating the last set of the parameters input file
+# Calculate the length of the LFP
+v.db.addtable map=ihu_lfp
+v.to.db map=ihu_lfp option=length units=meters columns=length_m
+v.db.select map=ihu_lfp
+# Value we want is 2nd line when printed vertically
+lfp_length=`v.db.select -c map=ihu_lfp format=vertical | sed -n '2p'`
+echo $lfp_length
+
+# Add column with distance of each ihu_suboutlet from main ihu_outlet
+v.db.addtable map=ihu_suboutlets
+v.db.addcolumn map=ihu_suboutlets columns="distance_m real"
+v.db.update map=ihu_suboutlets column=distance_m query_column="cat*$lfp_length/10"
+
+# The cumulative area ratios of the subwatersheds can be obtained from the flow
+# accumulation raster. Add facc values to ihu_suboutlets and ihu_outlet
+v.what.rast map=ihu_suboutlets raster=facc column=facc
+v.what.rast map=ihu_outlet raster=facc column=facc
+v.db.select map=ihu_outlet
+# Value we want is 5th line when printed vertically
+watershed_cells=`v.db.select -c map=ihu_outlet format=vertical | sed -n '5p'`
+echo $watershed_cells
+
+# The total number of cells within the watershed is stored in the
+# watershed_cells script variable. Divide the facc column in the suboutlets
+# vector by this number to obtain the cumulative area ratios.
+v.db.addcolumn map=ihu_suboutlets columns="area_ratio real"
+v.db.update map=ihu_suboutlets column=area_ratio query_column="1-facc/$watershed_cells."
+v.db.select -c ihu_suboutlets columns=distance_m,area_ratio separator=tab
+# Just make sure to append a . after $watershed_cells to force a floating-point
+# division.
+
+# Now modify topmodel input parameters template with these data
+echo 'topmodel paramenters file used is' $topmod_params_init
+# topmod_params_init is a template; simply add correct area on line 7 and area
+# ratios First 6 lines the same for everything
+head --lines 6 $topmod_params_init > topmod_params.txt
+# Catchment area
+r.stats -an ihu_watershed --quiet | awk '{print $2}' >> topmod_params.txt
+# Next 54 lines of template same for everything
+tail --lines 54 $topmod_params_init >> topmod_params.txt
+echo "0.0       0.0" >> topmod_params.txt
+v.db.select -c ihu_suboutlets columns=distance_m,area_ratio separator=tab >> topmod_params.txt
+echo "$lfp_length       1.0" >> topmod_params.txt
+
+
+# 4.TOPMODEL topidxstats
+# r.topmodel provides a preprocessing flag -p to generate a topidxstats file
+# from a topidx raster created by r.topidx. The following command calculates
+# statistics about topographic indices in the topidx raster by splitting the
+# entire range into 30 classes:
+r.topmodel -p topidx=ihu_topidx ntopidxclasses=30 outtopidxstats=topidxstats.txt --overwrite
+
+# Each line starts with the upper limit of a topographic index range whose
+# ratio is recorded in the next line in the second column with its lower
+# limit in the first column. For example, topographic indices between 16.67
+# and 17.09 covers the 1.742e-4% of the watershed.
+#
+# These pairs are sorted by the topographic index in an descending order.
+# Since the first line represents the maximum topographic index, its second
+# column must always be 0.
+
+
+# 5. WEATHER DATA
+# There are really too few weather NCDC stations in our area. Have created
+# spatio-temporal daily temperature and rainfall datasets from UKHAD at 1 km
+# from 2010 to 2019 (currently on bces-01 in uk_met mapset).
+# Need to get average rainfall for target subcatchment ihu_watershed
+# PET data available from USGS but too crude (single value for whole region).
+# Alternatives:
+#   CEH-EIDC 2010-2017 1km daily
+#   CEH-EIDC 2010-2020 1km daily. Temporarily withdrawn due to errors in
+#                                 PET calculations but submitted a request
+#                                 to get access on 28/07/2022
+#   Linear model. Derived from 5 km monthly temperature, wind and elevation
+#                                 from HAD-UK Met Office Data. Explains
+#                                 about 80% of variation.
+# Will use CEH-EIDC 2010-2017 1km for now, although this slightly shortens
+# overall time series length.
+# In code below the awk statement converts rain and PET to m/day for Topmodel
+#
+if [ $calc_rain_pet == YES ]
+then
+# Rainfall
+r.mapcalc expression="MASK=ihu_watershed" --overwrite
+g.region -a zoom=MASK res=1000
+t.rast.algebra basename=tmp_ihu_rainfall expression="tmp_ihu_rainfall=if(start_date(wader_rainfall_daily@PERMANENT) <= $end_date_trast, wader_rainfall_daily@PERMANENT)" nprocs=8 --overwrite
+t.rast.univar -u tmp_ihu_rainfall | cut -d'|' -f4 > ihu_rainfall.txt 
+t.remove -d -f tmp_ihu_rainfall
+# Convert rainfall to m / day
+awk '{printf("%.6f\n", ($1/1000))}' ihu_rainfall.txt > ihu_rainfall.txt2
+mv ihu_rainfall.txt2 input_rain.txt
+# PET
+t.rast.algebra basename=tmp_ihu_pet expression="tmp_ihu_pet=if(start_date(wader_pet_daily@PERMANENT) <= $end_date_trast, wader_pet_daily@PERMANENT)" nprocs=8 --overwrite
+t.rast.univar -u tmp_ihu_pet | cut -d'|' -f4 > ihu_pet.txt 
+t.remove -d -f tmp_ihu_pet
+awk '{printf("%.6f\n", ($1/1000))}' ihu_pet.txt > ihu_pet.txt2
+mv ihu_pet.txt2 input_pet.txt
+fi
+r.mask -r
+r.mask raster=ihu_watershed
+g.region -a zoom=MASK res=50
+
+# See R script nrfa_download_flow.R for simple download of a station.
+# saved in obs.txt to match tutorial
+# Need to change to something easier later!
+#Rscript nrfa_download_flow.R $nrfa_station_id $start_date $end_date obs.txt
+#echo "# From nrfa_download_flow.R for $nrfa_station_id start_date=$start_date end_date=$end_date" > tmp.txt
+#echo "# Q [m^3/d]" >> tmp.txt
+#cat obs.txt >> tmp.txt
+#mv tmp.txt obs.txt
+
+
+# Assemble rainfall and PET into a single file
+# original online tutorial creates a file called input_evap.txt for
+# rainfall AND evapotranspiration. Renamed here to input_rain_evap.txt
+rain_evap_file="input_rain_evap.txt"
+echo "# Generated by from ihu_topmodel.bsh start_date=$start_date end_date=$end_date" > $rain_evap_file
+echo "# dt [h]: Time step" >> $rain_evap_file
+echo "24" >> $rain_evap_file
+echo "" >> $rain_evap_file
+echo "################################################################################" >> $rain_evap_file
+echo "# R [m/dt]:  Rainfall" >> $rain_evap_file
+echo "# Ep [m/dt]: Potential evapotranspiration" >> $rain_evap_file
+echo "" >> $rain_evap_file
+echo "# R Ep" >> $rain_evap_file
+paste -d " " input_rain.txt input_pet.txt >> $rain_evap_file
+
+if [ $calc_rain_pet == YES ]
+then
+# As t.rast.algebra take while to run, copy obs and rain/pet data to a
+# subcatch_dat folder for ease of access in future
+cp $rain_evap_file subcatch_dat/$rain_evap_file.$subcatch_no
+cp obs.txt subcatch_dat/obs.txt.$subcatch_no
+fi
+
+
+# 6. RUN TOPMODEL WITHOUT CALIBRATION
+# Now simply call Topmodel directly on relevant subcatchment
+input_rain_pet=subcatch_dat/input_rain_evap.txt.$subcatch_no
+r.topmodel param=topmod_params.txt topidxstats=topidxstats.txt input=$input_rain_pet output=output.txt
+mv output.txt subcatch_dat/output.txt.$subcatch_no
+
+
+## 6. CALIBRATION SETUP
+## For single catchment
+## Remember to check NRFA end date for each station which varies
+## get the number of days for calibration period
+#calibration_days=`scripts/get_num_days.py $start_date $calibration_end_date`
+## Returns 2191
+#head -9 input_rain_evap.txt > input_c_rain_evap.txt
+#tail +10 input_rain_evap.txt | sed ''"$calibration_days"'q' >> input_c_rain_evap.txt
+#head -2 obs.txt > obs_c.txt
+#tail +3 obs.txt | sed ''"$calibration_days"'q' >> obs_c.txt
+## For validation skip to january 1st 2015
+#validation_skip_days=`scripts/get_num_days.py $start_date $validation_skip_date`
+## Returns 1826
+## Skip the first 1,826 records from input_rain_evap.txt and obs.txt.
+## BUT the NRFA data sometimes incomplete, so have to check that filesizes
+## match so need to check number of days to end of NRFA data
+## If bad mismatch on NRFA then code manually (commented out) but probably
+## easiest to set end_date to match NRFA data globally.
+## Manual
+##get_num_days.py 2015-01-01 2019-09-30
+## Returns 1734
+##head -9 input_rain_evap.txt > input_v_rain_evap.txt
+##tail +1836 input_rain_evap.txt | sed '1734q' >> input_v_rain_evap.txt
+##head -2 obs.txt > obs_v.txt
+#tail +1829 obs.txt | sed '1734q' >> obs_v.txt
+## Automatic
+## Slightly different skip lengths of rain_evap vs obs due to headers
+#head -9 input_rain_evap.txt > input_v_rain_evap.txt
+#validation_skip_rain_evap=`expr $validation_skip_days + 10`
+#tail +$validation_skip_rain_evap input_rain_evap.txt >> input_v_rain_evap.txt
+#validation_skip_obs=`expr $validation_skip_days + 3`
+#head -2 obs.txt > obs_v.txt
+#tail +$validation_skip_obs obs.txt >> obs_v.txt
+#
+#
+## Before running the calibration script in the data folder copy the
+## topmodel_params.txt to data/params.txt
+#cp topmod_params.txt data/params.txt
+#
+#
+## 7. CALIBRATION
+## At this point manually edit scripts/config.R with the right information. Its
+## key variables are (taken from the tutorial):
+##   nruns determines how many times to run r.topmodel for calibration.
+##   skip_c and skip_v are the numbers of time steps for warming up for calibration and
+##                     validation, respectively.
+##   path_c and path_v define paths to input and output files for calibration and
+##                     validation, respectively.
+##   sim additionally defines a directory where simulation files for calibration will be saved
+##   obs defines the location of an observed streamflow file.
+##   calc_nse is the Nash-Sutclieffe efficiency (NSE) function.
+##   calc_obj is the objective function for minimization. Since this objective function returns
+##                     1 minus the NSE, its potential minimum value is 0, which means a
+##                     perfect model.
+#
+## Delete results of previous calibration
+#echo "Doing calibration. Please wait..." 
+#rm data/sim/*
+## I think the various input files need to be in the data folder
+#cp topidxstats.txt data/topidxstats.txt
+#cp input_c_rain_evap.txt data/input_c_rain_evap.txt
+#cp obs_c.txt data/obs_c.txt
+#cp input_v_rain_evap.txt data/input_v_rain_evap.txt
+#cp obs_v.txt data/obs_v.txt
+## This is a bit awkward, but seem to have to run calibrate.R from data folder
+## Check manually first
+#cd data
+#echo "Doing validation. Pleae wait..."
+#Rscript ../scripts/calibrate.R
+#cd ..
+## Permanently store best calibration parameters
+#cp data/params.txt subcatch_dat/params.txt.$subcatch_no
+#
+## Then run the inspect_c_v_results.R to run Topmodel on best calibration data
+## and plot results. By default the 1000 individual model runs are not plotted.
+#cd data
+#Rscript inspect_c_v_results.R $subcatch_no $start_date $calibration_end_date $validation_start_date $end_date
+#cd ..
+#mv data/Rplots.pdf subcatch_dat/calib_valid_plots.$subcatch_no.pdf
+#
+#
+## 8. SENSITIVITY ANALYSIS
+## Takes about 10 to 20 minutes per subcatchment. Although objective
+## function can be plotted against the 1000 simulations done using the
+## ISPSO optimisation earlier, in practice as this converges fast it
+## is difficult to spot which variables topmodel is most sensitive
+## to for our setup. So using random uniform distribution with
+## 10,000 random simulations, though slower, gives easier plots
+## to interpret.
+## 
+## Delete results of previous sensitivity analysis
+#if [ $sensitivity == "YES" ]
+#then
+#echo "Doing sensitivity analysis. Please wait..."
+#rm data/sim_random/*
+#cd data
+#../scripts/sample_random.R
+#cd ..
+#mv data/Rplots.pdf subcatch_dat/sensitivity_plots.$subcatch_no.pdf
+#fi

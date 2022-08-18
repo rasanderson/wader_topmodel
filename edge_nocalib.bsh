@@ -1,6 +1,12 @@
 #!/bin/bash
 
 # This adapts the approach used in Tyne catchment for Tweed
+# Script based on main_onesubcatch.bsh but for subcathments that
+# lack NRFA data therefore cannot be calibrated. Instead use
+# mean parameter values from those edge subcatchments that have
+# been calibrated.
+
+# Can only be used for 'edge' subcatchments, i.e. without inflows
 g.region -a zoom=tweed_ihu_50m res=50
 
 #######################################
@@ -12,14 +18,14 @@ subcatch_totno='26'
 echo 'total number of subcatchments being analysed is ' $subcatch_totno
 max_subcatch_no=$subcatch_totno
 
-echo 'Enter subcatchment number to calibrate'
+echo 'Enter subcatchment number to model'
 read subcatch_no
 echo $subcatch_no
 
 max_subcatch_no=$subcatch_no # Just for debugging one subcatchment at a time
 
 # Input template of topmod_parameters
-topmod_params_init='topmod_params_init.txt'
+topmod_params_init='topmod_params_mean_init.txt'
 echo 'topmodel paramenters file used is' $topmod_params_init
 
 # Input raster map containing DEM for whole study area
@@ -44,16 +50,12 @@ end_date_trast=\"$end_date\"
 # e.g. NRFA station for subcatchment 26 Ettrick Water at Lindean id 21007
 # Note: this actually runs to 30th Sept 2019 via rnrfa. NRFA website
 # gives to current date, but on download also ends 30th Sept.
-echo "Enter the NRFA code for calibration"
-read nrfa_station_id
-echo $nrfa_station_id
+echo "This script for edge subcatchments without NRFA data with no feed-ins"
 calibration_end_date="2015-12-31"
 validation_skip_date="2014-12-31" # One year earlier for burn-in
 validation_start_date="2015-01-01" # Basically 1 yr before calibration_end_date
 
 # Number of days to be modelled
-# If using NRFA data it stops in 30 September 2019 for latest upload
-# If using CEH EIDC PET data the available version is to 2017
 ntimesteps=`scripts/get_num_days.py $start_date $end_date`
 
 # Calculate subcatchment-level rain and PET? This is very slow
@@ -70,10 +72,6 @@ read response
 
 d.mon stop=wx1
 d.mon start=wx1
-
-#while [ $subcatch_no -le $subcatch_totno ]
-#while [ $subcatch_no -le $max_subcatch_no ] # debugging one catchmnt
-#do
 
 echo "****************************************"
 echo $subcatch_no
@@ -205,7 +203,6 @@ v.db.select -c ihu_suboutlets columns=distance_m,area_ratio separator=tab
 # division.
 
 # Now modify topmodel input parameters template with these data
-topmod_params_init='topmod_params_init.txt'
 echo 'topmodel paramenters file used is' $topmod_params_init
 # topmod_params_init is a template; simply add correct area on line 7 and area
 # ratios First 6 lines the same for everything
@@ -279,11 +276,11 @@ g.region -a zoom=MASK res=50
 # See R script nrfa_download_flow.R for simple download of a station.
 # saved in obs.txt to match tutorial
 # Need to change to something easier later!
-Rscript nrfa_download_flow.R $nrfa_station_id $start_date $end_date obs.txt
-echo "# From nrfa_download_flow.R for $nrfa_station_id start_date=$start_date end_date=$end_date" > tmp.txt
-echo "# Q [m^3/d]" >> tmp.txt
-cat obs.txt >> tmp.txt
-mv tmp.txt obs.txt
+#Rscript nrfa_download_flow.R $nrfa_station_id $start_date $end_date obs.txt
+#echo "# From nrfa_download_flow.R for $nrfa_station_id start_date=$start_date end_date=$end_date" > tmp.txt
+#echo "# Q [m^3/d]" >> tmp.txt
+#cat obs.txt >> tmp.txt
+#mv tmp.txt obs.txt
 
 
 # Assemble rainfall and PET into a single file
@@ -309,103 +306,111 @@ cp $rain_evap_file subcatch_dat/$rain_evap_file.$subcatch_no
 cp obs.txt subcatch_dat/obs.txt.$subcatch_no
 fi
 
-# 6. CALIBRATION SETUP
-# For single catchment
-# Remember to check NRFA end date for each station which varies
-# get the number of days for calibration period
-calibration_days=`scripts/get_num_days.py $start_date $calibration_end_date`
-# Returns 2191
-head -9 input_rain_evap.txt > input_c_rain_evap.txt
-tail +10 input_rain_evap.txt | sed ''"$calibration_days"'q' >> input_c_rain_evap.txt
-head -2 obs.txt > obs_c.txt
-tail +3 obs.txt | sed ''"$calibration_days"'q' >> obs_c.txt
-# For validation skip to january 1st 2015
-validation_skip_days=`scripts/get_num_days.py $start_date $validation_skip_date`
-# Returns 1826
-# Skip the first 1,826 records from input_rain_evap.txt and obs.txt.
-# BUT the NRFA data sometimes incomplete, so have to check that filesizes
-# match so need to check number of days to end of NRFA data
-# If bad mismatch on NRFA then code manually (commented out) but probably
-# easiest to set end_date to match NRFA data globally.
-# Manual
-#get_num_days.py 2015-01-01 2019-09-30
-# Returns 1734
-#head -9 input_rain_evap.txt > input_v_rain_evap.txt
-#tail +1836 input_rain_evap.txt | sed '1734q' >> input_v_rain_evap.txt
-#head -2 obs.txt > obs_v.txt
+
+# 6. RUN TOPMODEL WITHOUT CALIBRATION
+# Now simply call Topmodel directly on relevant subcatchment
+input_rain_pet=subcatch_dat/input_rain_evap.txt.$subcatch_no
+r.topmodel param=topmod_params.txt topidxstats=topidxstats.txt input=$input_rain_pet output=output.txt
+mv output.txt subcatch_dat/output.txt.$subcatch_no
+
+
+## 6. CALIBRATION SETUP
+## For single catchment
+## Remember to check NRFA end date for each station which varies
+## get the number of days for calibration period
+#calibration_days=`scripts/get_num_days.py $start_date $calibration_end_date`
+## Returns 2191
+#head -9 input_rain_evap.txt > input_c_rain_evap.txt
+#tail +10 input_rain_evap.txt | sed ''"$calibration_days"'q' >> input_c_rain_evap.txt
+#head -2 obs.txt > obs_c.txt
+#tail +3 obs.txt | sed ''"$calibration_days"'q' >> obs_c.txt
+## For validation skip to january 1st 2015
+#validation_skip_days=`scripts/get_num_days.py $start_date $validation_skip_date`
+## Returns 1826
+## Skip the first 1,826 records from input_rain_evap.txt and obs.txt.
+## BUT the NRFA data sometimes incomplete, so have to check that filesizes
+## match so need to check number of days to end of NRFA data
+## If bad mismatch on NRFA then code manually (commented out) but probably
+## easiest to set end_date to match NRFA data globally.
+## Manual
+##get_num_days.py 2015-01-01 2019-09-30
+## Returns 1734
+##head -9 input_rain_evap.txt > input_v_rain_evap.txt
+##tail +1836 input_rain_evap.txt | sed '1734q' >> input_v_rain_evap.txt
+##head -2 obs.txt > obs_v.txt
 #tail +1829 obs.txt | sed '1734q' >> obs_v.txt
-# Automatic
-# Slightly different skip lengths of rain_evap vs obs due to headers
-head -9 input_rain_evap.txt > input_v_rain_evap.txt
-validation_skip_rain_evap=`expr $validation_skip_days + 10`
-tail +$validation_skip_rain_evap input_rain_evap.txt >> input_v_rain_evap.txt
-validation_skip_obs=`expr $validation_skip_days + 3`
-head -2 obs.txt > obs_v.txt
-tail +$validation_skip_obs obs.txt >> obs_v.txt
-
-
-# Before running the calibration script in the data folder copy the
-# topmodel_params.txt to data/params.txt
-cp topmod_params.txt data/params.txt
-
-
-# 7. CALIBRATION
-# At this point manually edit scripts/config.R with the right information. Its
-# key variables are (taken from the tutorial):
-#   nruns determines how many times to run r.topmodel for calibration.
-#   skip_c and skip_v are the numbers of time steps for warming up for calibration and
-#                     validation, respectively.
-#   path_c and path_v define paths to input and output files for calibration and
-#                     validation, respectively.
-#   sim additionally defines a directory where simulation files for calibration will be saved
-#   obs defines the location of an observed streamflow file.
-#   calc_nse is the Nash-Sutclieffe efficiency (NSE) function.
-#   calc_obj is the objective function for minimization. Since this objective function returns
-#                     1 minus the NSE, its potential minimum value is 0, which means a
-#                     perfect model.
-
-# Delete results of previous calibration
-echo "Doing calibration. Please wait..." 
-rm data/sim/*
-# I think the various input files need to be in the data folder
-cp topidxstats.txt data/topidxstats.txt
-cp input_c_rain_evap.txt data/input_c_rain_evap.txt
-cp obs_c.txt data/obs_c.txt
-cp input_v_rain_evap.txt data/input_v_rain_evap.txt
-cp obs_v.txt data/obs_v.txt
-# This is a bit awkward, but seem to have to run calibrate.R from data folder
-# Check manually first
-cd data
-echo "Doing validation. Pleae wait..."
-Rscript ../scripts/calibrate.R
-cd ..
-# Permanently store best calibration parameters
-cp data/params.txt subcatch_dat/params.txt.$subcatch_no
-
-# Then run the inspect_c_v_results.R to run Topmodel on best calibration data
-# and plot results. By default the 1000 individual model runs are not plotted.
-cd data
-Rscript inspect_c_v_results.R $subcatch_no $start_date $calibration_end_date $validation_start_date $end_date
-cd ..
-mv data/Rplots.pdf subcatch_dat/calib_valid_plots.$subcatch_no.pdf
-
-
-# 8. SENSITIVITY ANALYSIS
-# Takes about 10 to 20 minutes per subcatchment. Although objective
-# function can be plotted against the 1000 simulations done using the
-# ISPSO optimisation earlier, in practice as this converges fast it
-# is difficult to spot which variables topmodel is most sensitive
-# to for our setup. So using random uniform distribution with
-# 10,000 random simulations, though slower, gives easier plots
-# to interpret.
-# 
-# Delete results of previous sensitivity analysis
-if [ $sensitivity == "YES" ]
-then
-echo "Doing sensitivity analysis. Please wait..."
-rm data/sim_random/*
-cd data
-../scripts/sample_random.R
-cd ..
-mv data/Rplots.pdf subcatch_dat/sensitivity_plots.$subcatch_no.pdf
-fi
+## Automatic
+## Slightly different skip lengths of rain_evap vs obs due to headers
+#head -9 input_rain_evap.txt > input_v_rain_evap.txt
+#validation_skip_rain_evap=`expr $validation_skip_days + 10`
+#tail +$validation_skip_rain_evap input_rain_evap.txt >> input_v_rain_evap.txt
+#validation_skip_obs=`expr $validation_skip_days + 3`
+#head -2 obs.txt > obs_v.txt
+#tail +$validation_skip_obs obs.txt >> obs_v.txt
+#
+#
+## Before running the calibration script in the data folder copy the
+## topmodel_params.txt to data/params.txt
+#cp topmod_params.txt data/params.txt
+#
+#
+## 7. CALIBRATION
+## At this point manually edit scripts/config.R with the right information. Its
+## key variables are (taken from the tutorial):
+##   nruns determines how many times to run r.topmodel for calibration.
+##   skip_c and skip_v are the numbers of time steps for warming up for calibration and
+##                     validation, respectively.
+##   path_c and path_v define paths to input and output files for calibration and
+##                     validation, respectively.
+##   sim additionally defines a directory where simulation files for calibration will be saved
+##   obs defines the location of an observed streamflow file.
+##   calc_nse is the Nash-Sutclieffe efficiency (NSE) function.
+##   calc_obj is the objective function for minimization. Since this objective function returns
+##                     1 minus the NSE, its potential minimum value is 0, which means a
+##                     perfect model.
+#
+## Delete results of previous calibration
+#echo "Doing calibration. Please wait..." 
+#rm data/sim/*
+## I think the various input files need to be in the data folder
+#cp topidxstats.txt data/topidxstats.txt
+#cp input_c_rain_evap.txt data/input_c_rain_evap.txt
+#cp obs_c.txt data/obs_c.txt
+#cp input_v_rain_evap.txt data/input_v_rain_evap.txt
+#cp obs_v.txt data/obs_v.txt
+## This is a bit awkward, but seem to have to run calibrate.R from data folder
+## Check manually first
+#cd data
+#echo "Doing validation. Pleae wait..."
+#Rscript ../scripts/calibrate.R
+#cd ..
+## Permanently store best calibration parameters
+#cp data/params.txt subcatch_dat/params.txt.$subcatch_no
+#
+## Then run the inspect_c_v_results.R to run Topmodel on best calibration data
+## and plot results. By default the 1000 individual model runs are not plotted.
+#cd data
+#Rscript inspect_c_v_results.R $subcatch_no $start_date $calibration_end_date $validation_start_date $end_date
+#cd ..
+#mv data/Rplots.pdf subcatch_dat/calib_valid_plots.$subcatch_no.pdf
+#
+#
+## 8. SENSITIVITY ANALYSIS
+## Takes about 10 to 20 minutes per subcatchment. Although objective
+## function can be plotted against the 1000 simulations done using the
+## ISPSO optimisation earlier, in practice as this converges fast it
+## is difficult to spot which variables topmodel is most sensitive
+## to for our setup. So using random uniform distribution with
+## 10,000 random simulations, though slower, gives easier plots
+## to interpret.
+## 
+## Delete results of previous sensitivity analysis
+#if [ $sensitivity == "YES" ]
+#then
+#echo "Doing sensitivity analysis. Please wait..."
+#rm data/sim_random/*
+#cd data
+#../scripts/sample_random.R
+#cd ..
+#mv data/Rplots.pdf subcatch_dat/sensitivity_plots.$subcatch_no.pdf
+#fi

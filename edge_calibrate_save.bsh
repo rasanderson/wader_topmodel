@@ -1,0 +1,195 @@
+#!/bin/bash
+# Here the aim is to save topmodel outputs into the subcatch_dat
+# folder for future use, for edge subcatchments that have been
+# calibrated via NRFA data. Assume calibration already done.
+
+# This adapts the approach used in Tyne catchment for Tweed
+g.region -a zoom=tweed_ihu_50m res=50
+
+#######################################
+# Use create_subcatchments.bsh to define number of subcatchments
+# based on threshold value. This initial run uses threshold of
+# 50,000 which gives 26 subcatchments.
+
+subcatch_totno='26'
+echo 'total number of subcatchments being analysed is ' $subcatch_totno
+max_subcatch_no=$subcatch_totno
+
+echo 'Enter subcatchment number to output and save predictions'
+read subcatch_no
+echo $subcatch_no
+
+max_subcatch_no=$subcatch_no # Just for debugging one subcatchment at a time
+
+# Input template of topmod_parameters
+topmod_params_init='topmod_params_init.txt'
+echo 'topmodel paramenters file used is' $topmod_params_init
+
+# Input raster map containing DEM for whole study area
+topmod_demraw='tweed_ihdtm_50m'
+echo 'raster map of DEM used is' $topmod_demraw
+
+# Input raster map containing all (sub)catchments for study. 
+topmod_allcatch='tweed_ihu_50m' # aligns better
+echo 'raster map containing all catchments is' $topmod_allcatch
+
+# Input raster map (sub)catchments.  Each (sub)catchment has a separate number
+topmod_subcatch='tweed_subcatchments'
+echo 'raster map of subcatchment used is' $topmod_subcatch
+
+# Start and end dates. t.rast.algebra needs literal quotes for dates.
+start_date="2010-01-01"
+end_date="2017-12-31"
+start_date_trast=\"$start_date\"
+end_date_trast=\"$end_date\"
+
+# Calibration (if NRFA station available)
+# e.g. NRFA station for subcatchment 26 Ettrick Water at Lindean id 21007
+# Note: this actually runs to 30th Sept 2019 via rnrfa. NRFA website
+# gives to current date, but on download also ends 30th Sept.
+#echo "Enter the NRFA code for calibration"
+#read nrfa_station_id
+#echo $nrfa_station_id
+#calibration_end_date="2015-12-31"
+#validation_skip_date="2014-12-31" # One year earlier for burn-in
+#validation_start_date="2015-01-01" # Basically 1 yr before calibration_end_date
+
+# Number of days to be modelled
+# If using NRFA data it stops in 30 September 2019 for latest upload
+# If using CEH EIDC PET data the available version is to 2017
+ntimesteps=`scripts/get_num_days.py $start_date $end_date`
+
+# Calculate subcatchment-level rain and PET? This is very slow
+# so avoid where possible and use stored data.
+calc_rain_pet="NO"
+
+# Sensitivity analysis if very slow, as uses random uniform distribution
+sensitivity="NO"
+
+echo "If happy with input specification hit return to continue"
+read response
+#### End of input variable specification ####
+#############################################
+
+d.mon stop=wx1
+d.mon start=wx1
+
+#while [ $subcatch_no -le $subcatch_totno ]
+#while [ $subcatch_no -le $max_subcatch_no ] # debugging one catchmnt
+#do
+
+echo "****************************************"
+echo $subcatch_no
+d.erase
+
+# Remove MASK if present
+r.mask -r
+
+# Set region to cover all study catchments
+g.region -a rast=$topmod_allcatch res=50
+
+
+# Set MASK to correct subcatchment; topmodel will now be run only in the area
+# of topmod_onecatch 
+g.remove -f type=raster name=topmod_onecatch
+r.mapcalc expression="topmod_onecatch=if($topmod_subcatch==$subcatch_no,1,null())" --overwrite
+g.region -a zoom=topmod_onecatch res=50
+# Need resolution to help clean longest flow path vector
+resolution=`g.region -p | grep nsres | awk '{print $2}'`
+d.mon sel=wx1
+r.mask topmod_onecatch --quiet
+
+
+# Encountered problems creating reliable stream network from original DEM
+# For Campy work used r.fill.dem first, just on the IHU (subcatchment for
+# Campy. Try the same here.
+r.mapcalc expression=ihu_dem=ceh_ihdtm_hght_50m --overwrite
+r.colors map=ihu_dem color=elevation
+
+# Given problems with both stream network reliability from CEH and DEM, try
+# filling and recreating.
+#g.region -a res=50
+r.resamp.interp input=ihu_dem output=ihu_dem2 --overwrite
+r.fill.dir input=ihu_dem output=ihu_demfill direction=ihu_demdir areas=ihu_dem_problems --overwrite
+# If subcatch includes the River Tweed at its lower reaches, it is classed
+# as -1000
+r.mapcalc expression="ihu_demfill=if(ihu_demfill==-1000,null(),ihu_demfill)" --overwrite
+r.colors ihu_demfill color=elevation
+
+# Now try and display streams
+r.stream.extract elevation=ihu_demfill stream_raster=ihu_watershed_streams direction=ihu_fdir threshold=1 --verbose --overwrite
+d.rast ihu_watershed_streams
+r.stream.order stream_rast=ihu_watershed_streams direction=ihu_fdir strahler=ihu_strahler --overwrite
+d.erase
+d.rast ihu_strahler
+
+output_stream=`r.stats -n ihu_strahler | tail -1`
+echo 'the highest stream number found is' $output_stream
+
+r.mapcalc expression="output_stream_dem=if(ihu_strahler==$output_stream, ihu_demfill,null())" --overwrite
+r.stats -gn output_stream_dem > output_flow.txt
+
+# Assume output E and N coords are at minimum DEM of this stream
+E_outflow=`cat output_flow.txt | xargs -n3 | sort -nrk3,3 | tail -1 | awk '{print $1}'`
+N_outflow=`cat output_flow.txt | xargs -n3 | sort -nrk3,3 | tail -1 | awk '{print $2}'`
+
+echo 'easting and northing coordinates for outflow are respectively' $E_outflow, $N_outflow
+r.accumulate direction=ihu_fdir subwatershed=ihu_watershed accumulation=facc longest_flow_path=ihu_lfp coordinates=$E_outflow,$N_outflow --overwrite
+d.vect tweed_rivers
+d.vect ihu_lfp color=blue width=5
+
+
+
+# 2. TOPMODEL TOPOGRAPHIC INDEX
+r.topidx input=ihu_demfill output=ihu_topidx --overwrite
+r.mapcalc expression="ihu_topidx_watershed=if(isnull(ihu_watershed),null(),ihu_topidx)" --overwrite
+d.rast ihu_topidx_watershed
+# NOTE: topidx_watershed is not calculated for reservoirs (flat areas)
+
+# For later when setting up the topmodel_param.txt file we need the distance
+# along each subwatershed. This needs the stream network to be 'burnt' into
+# the relevant dem as per the tutorial.
+r.mapcalc expression="ihu_dem_burned=if(isnull(ihu_watershed_streams),ihu_demfill,-9999)" --overwrite
+r.watershed elevation=ihu_dem_burned drainage=ihu_fdir --overwrite
+d.rast ihu_fdir
+
+# Given problems with outlet map earlier, create one based on stream
+# network outflow point
+echo "1|$E_outflow|$N_outflow|output" | v.in.ascii in=- x=2 y=3 cat=1 columns='cat int, x double precision, y double precision, label varchar(20)' out=ihu_outlet --overwrite
+
+# Now we can delineate the watershed and display the longest flow path
+# Note: r.accumulate may neet to be installed with g.extension
+r.accumulate direction=ihu_fdir outlet=ihu_outlet subwatershed=ihu_watershed accumulation=ihu_facc longest_flow_path=ihu_lfp --overwrite
+
+# Convert the watershed raster to vector.
+r.to.vect input=ihu_watershed type=area output=ihu_watershed --overwrite
+
+# 3. TOPMODEL PARAMETERS
+# Best set already exists so full calibration not needed
+v.segment input=ihu_lfp rules=suboutlets.txt output=ihu_suboutlets --overwrite
+r.accumulate direction=ihu_fdir outlet=ihu_suboutlets subwatershed=ihu_subwatersheds --overwrite
+d.erase
+d.rast ihu_subwatersheds
+d.vect ihu_lfp color=blue width=3
+d.vect ihu_suboutlets fill_color=red icon=basic/circle size=10
+
+topmod_params="subcatch_dat/params.txt.$subcatch_no"
+
+# 4.TOPMODEL topidxstats
+# r.topmodel provides a preprocessing flag -p to generate a topidxstats file
+# from a topidx raster created by r.topidx. The following command calculates
+# statistics about topographic indices in the topidx raster by splitting the
+# entire range into 30 classes:
+r.topmodel -p topidx=ihu_topidx ntopidxclasses=30 outtopidxstats=topidxstats.txt --overwrite
+
+
+# 5. WEATHER DATA
+# Assumes rain and PET already available
+rain_evap_file="subcatch_dat/input_rain_evap.txt.$subcatch_no"
+
+# 6. RUN TOPMODEL
+# Save results for whole time period.
+topmod_params="subcatch_dat/params.txt.$subcatch_no"
+topmod_output="subcatch_dat/output.txt.$subcatch_no"
+r.topmodel param=$topmod_params topidxstats=topidxstats.txt input=$rain_evap_file output=output.txt
+mv output.txt subcatch_dat/output.txt.$subcatch_no

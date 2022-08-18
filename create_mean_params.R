@@ -29,27 +29,16 @@ outfile   <- "topmod_params_mean_init.txt"
 
 # To write info to file; write line 1 to force creation of new file
 `%!in%` <- Negate(`%in%`)
-#cat(param_raw[1], file=outfile, append=FALSE, "\n")
-cat(param_raw[1], "\n")
+cat(param_raw[1], file=outfile, append=FALSE, "\n")
 for (line_out in 2:61){ # 61 as that is list up to 0.0 0.0 of subcatch
 	for(parameter in 1:length(parval_rows)){
 		if (line_out == parval_rows[parameter]){
-			cat(parvals[parameter], "\n")
+			cat(parvals[parameter], file=outfile, append=TRUE, "\n")
 		}
 	}
 	if (line_out == 7){
-    cat("SUBCATCH AREA", "\n")
+    cat("SUBCATCH AREA", file=outfile, append=TRUE, "\n")
 	} else if (line_out %!in% parval_rows){
-		cat(param_raw[line_out], "\n")
+		cat(param_raw[line_out], file=outfile, append=TRUE, "\n")
 	}
 }
-  if(line_out == 7){
-    cat("ENTER SUBCATCH AREA", file=outfile, append=TRUE, "\n")
-  } else if(line_out == 14) {
-    cat("Mean qs0 will go here", file=outfile, append=TRUE, "\n")
-  } else {
-    cat(param_raw[line_out], file=outfile, append=TRUE, "\n")
-  }
-}
-
-

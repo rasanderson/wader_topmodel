@@ -12,8 +12,10 @@ subcatch_totno='26'
 echo 'total number of subcatchments being analysed is ' $subcatch_totno
 max_subcatch_no=$subcatch_totno
 
-subcatch_no='7'
-echo 'initialised subcatchment number is set to' $subcatch_no
+echo 'Enter subcatchment number to calibrate'
+read subcatch_no
+echo $subcatch_no
+
 max_subcatch_no=$subcatch_no # Just for debugging one subcatchment at a time
 
 # Input template of topmod_parameters
@@ -42,7 +44,9 @@ end_date_trast=\"$end_date\"
 # e.g. NRFA station for subcatchment 26 Ettrick Water at Lindean id 21007
 # Note: this actually runs to 30th Sept 2019 via rnrfa. NRFA website
 # gives to current date, but on download also ends 30th Sept.
-nrfa_station_id=21018
+echo "Enter the NRFA code for calibration"
+read nrfa_station_id
+echo $nrfa_station_id
 calibration_end_date="2015-12-31"
 validation_skip_date="2014-12-31" # One year earlier for burn-in
 validation_start_date="2015-01-01" # Basically 1 yr before calibration_end_date
@@ -57,10 +61,10 @@ ntimesteps=`scripts/get_num_days.py $start_date $end_date`
 calc_rain_pet="NO"
 
 # Sensitivity analysis if very slow, as uses random uniform distribution
-sensitivity="YES"
+sensitivity="NO"
 
 echo "If happy with input specification hit return to continue"
-# read
+read response
 #### End of input variable specification ####
 #############################################
 
@@ -167,7 +171,6 @@ d.erase
 d.rast ihu_subwatersheds
 d.vect ihu_lfp color=blue width=3
 d.vect ihu_suboutlets fill_color=red icon=basic/circle size=10
-d.vect ihu_strahler
 
 # Creating the last set of the parameters input file
 # Calculate the length of the LFP
@@ -362,6 +365,7 @@ cp topmod_params.txt data/params.txt
 #                     perfect model.
 
 # Delete results of previous calibration
+echo "Doing calibration. Please wait..." 
 rm data/sim/*
 # I think the various input files need to be in the data folder
 cp topidxstats.txt data/topidxstats.txt
@@ -372,6 +376,7 @@ cp obs_v.txt data/obs_v.txt
 # This is a bit awkward, but seem to have to run calibrate.R from data folder
 # Check manually first
 cd data
+echo "Doing validation. Pleae wait..."
 Rscript ../scripts/calibrate.R
 cd ..
 # Permanently store best calibration parameters
@@ -395,8 +400,12 @@ mv data/Rplots.pdf subcatch_dat/calib_valid_plots.$subcatch_no.pdf
 # to interpret.
 # 
 # Delete results of previous sensitivity analysis
+if [ $sensitivity == "YES" ]
+then
+echo "Doing sensitivity analysis. Please wait..."
 rm data/sim_random/*
 cd data
 ../scripts/sample_random.R
 cd ..
 mv data/Rplots.pdf subcatch_dat/sensitivity_plots.$subcatch_no.pdf
+fi

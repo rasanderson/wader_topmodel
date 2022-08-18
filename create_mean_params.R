@@ -16,7 +16,7 @@ for(in_file_no in 1:length(available)){
   for(in_row in 1:61){
     for(parameter in 1:length(parval_rows)){
       if (in_row == parval_rows[parameter]){
-				cat(in_file_no, available[in_file_no], param_raw[in_row], "\n")
+				#cat(in_file_no, available[in_file_no], param_raw[in_row], "\n")
 				parvals[parameter] <- parvals[parameter] + as.numeric(param_raw[in_row])
       }
     }
@@ -28,8 +28,21 @@ parvals <- parvals / length(available)
 outfile   <- "topmod_params_mean_init.txt"
 
 # To write info to file; write line 1 to force creation of new file
-cat(param_raw[1], file=outfile, append=FALSE, "\n")
+`%!in%` <- Negate(`%in%`)
+#cat(param_raw[1], file=outfile, append=FALSE, "\n")
+cat(param_raw[1], "\n")
 for (line_out in 2:61){ # 61 as that is list up to 0.0 0.0 of subcatch
+	for(parameter in 1:length(parval_rows)){
+		if (line_out == parval_rows[parameter]){
+			cat(parvals[parameter], "\n")
+		}
+	}
+	if (line_out == 7){
+    cat("SUBCATCH AREA", "\n")
+	} else if (line_out %!in% parval_rows){
+		cat(param_raw[line_out], "\n")
+	}
+}
   if(line_out == 7){
     cat("ENTER SUBCATCH AREA", file=outfile, append=TRUE, "\n")
   } else if(line_out == 14) {
